@@ -36,7 +36,7 @@ Virtink currently supports the following container runtimes:
 
 - containerd v2.1+
 
-The container runtime must support image volumes.
+The container runtime must support image volumes. A runtime without that support mounts image volumes as empty directories instead of failing, and VM Pods then fail with an "image volume ... is empty" error. The containerd bundled with k3s and RKE2 supports image volumes since v1.36.2 (containerd v2.3.2-k3s).
 
 Other container runtimes, which do not use virtualization features, should work too. However, they are not tested officially.
 

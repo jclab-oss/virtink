@@ -29,6 +29,9 @@ func main() {
 			fs.Usage()
 			os.Exit(2)
 		}
+		if err := checkImageMounted(*imageDir); err != nil {
+			log.Fatal(err)
+		}
 
 		if err := containerdisk.Prepare(*imageDir, *target); err != nil {
 			log.Fatalf("Failed to prepare container disk: %s", err)
@@ -47,6 +50,9 @@ func main() {
 		if *imageDir == "" || *image == "" || *size <= 0 || *target == "" {
 			fs.Usage()
 			os.Exit(2)
+		}
+		if err := checkImageMounted(*imageDir); err != nil {
+			log.Fatal(err)
 		}
 
 		if *initPath != "" {
@@ -68,6 +74,21 @@ func main() {
 	default:
 		usage()
 	}
+}
+
+// checkImageMounted returns an error if imageDir, where an image volume is
+// mounted, is empty. A container runtime without image volume support mounts
+// an empty directory instead of failing, which would otherwise surface as a
+// confusing error about a file missing from the image.
+func checkImageMounted(imageDir string) error {
+	entries, err := os.ReadDir(imageDir)
+	if err != nil {
+		return fmt.Errorf("read image volume %s: %s", imageDir, err)
+	}
+	if len(entries) == 0 {
+		return fmt.Errorf("image volume %s is empty: the container runtime of the node may not support image volumes (containerd >= 2.1 is required)", imageDir)
+	}
+	return nil
 }
 
 // imageRootfsKey returns the rootfs cache key of the image. It uses, in order
