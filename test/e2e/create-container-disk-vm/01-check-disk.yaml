@@ -1,0 +1,8 @@
+apiVersion: kuttl.dev/v1beta1
+kind: TestStep
+commands:
+  # The VM's disk must be an overlay backed by the disk in the image volume.
+  - script: |
+      set -eu
+      pod=$(kubectl -n $NAMESPACE get vm ubuntu-container-disk -o jsonpath='{.status.vmPodName}')
+      kubectl -n $NAMESPACE exec $pod -c cloud-hypervisor -- qemu-img info -U /mnt/ubuntu/disk.qcow2 | grep -x 'backing file: /mnt/virtink-images/ubuntu/disk'

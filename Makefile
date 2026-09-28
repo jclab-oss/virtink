@@ -79,6 +79,7 @@ e2e-image:
 	docker buildx build -t virt-controller:e2e -f build/virt-controller/Dockerfile --build-arg PRERUNNER_IMAGE=virt-prerunner:e2e --load .
 	docker buildx build -t virt-daemon:e2e -f build/virt-daemon/Dockerfile --load .
 	docker buildx build -t virt-prerunner:e2e -f build/virt-prerunner/Dockerfile  --load .
+	docker buildx build -t virtink-image-rootfs-ubuntu:e2e -f samples/Dockerfile.image-rootfs-ubuntu --load .
 
 e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	echo "e2e kind cluster: $(E2E_KIND_CLUSTER_NAME)"
@@ -87,6 +88,7 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-controller:e2e
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-daemon:e2e
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-prerunner:e2e
+	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virtink-image-rootfs-ubuntu:e2e
 
 	docker pull docker.io/calico/cni:v3.23.5
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) docker.io/calico/cni:v3.23.5
@@ -150,6 +152,6 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) smartxworks/virtink-container-disk-ubuntu
 	docker pull smartxworks/virtink-container-rootfs-ubuntu
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) smartxworks/virtink-container-rootfs-ubuntu
-	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUTTL) test --config test/e2e/kuttl-test.yaml
+	PATH=$(LOCALBIN):$(PATH) KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUTTL) test --config test/e2e/kuttl-test.yaml
 
 	$(KIND) delete cluster --name $(E2E_KIND_CLUSTER_NAME)

@@ -1,0 +1,18 @@
+apiVersion: kuttl.dev/v1beta1
+kind: TestStep
+commands:
+  # Both VMs' disks must be overlays backed by the same cached rootfs.
+  - script: |
+      set -eu
+      backing_file() {
+        pod=$(kubectl -n $NAMESPACE get vm $1 -o jsonpath='{.status.vmPodName}')
+        kubectl -n $NAMESPACE exec $pod -c cloud-hypervisor -- qemu-img info -U /mnt/ubuntu/rootfs.qcow2 | sed -n 's/^backing file: //p'
+      }
+      b1=$(backing_file ubuntu-image-rootfs-1)
+      b2=$(backing_file ubuntu-image-rootfs-2)
+      echo "backing files: $b1 $b2"
+      case "$b1" in
+        /var/lib/virtink/rootfs-cache/v1-*/base.raw) ;;
+        *) exit 1 ;;
+      esac
+      test "$b1" = "$b2"
