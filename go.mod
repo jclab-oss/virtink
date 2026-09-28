@@ -3,6 +3,7 @@ module github.com/smartxworks/virtink
 go 1.26.8
 
 require (
+	github.com/cyphar/filepath-securejoin v0.5.0
 	github.com/docker/docker v28.5.0+incompatible
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
@@ -42,7 +43,6 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containernetworking/cni v1.3.0 // indirect
 	github.com/coreos/go-systemd/v22 v22.7.0 // indirect
-	github.com/cyphar/filepath-securejoin v0.5.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
 	github.com/evanphx/json-patch v5.9.0+incompatible // indirect

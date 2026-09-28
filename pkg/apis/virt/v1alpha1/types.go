@@ -149,6 +149,7 @@ type VolumeSource struct {
 	ContainerDisk         *ContainerDiskVolumeSource         `json:"containerDisk,omitempty"`
 	CloudInit             *CloudInitVolumeSource             `json:"cloudInit,omitempty"`
 	ContainerRootfs       *ContainerRootfsVolumeSource       `json:"containerRootfs,omitempty"`
+	ImageRootfs           *ImageRootfsVolumeSource           `json:"imageRootfs,omitempty"`
 	PersistentVolumeClaim *PersistentVolumeClaimVolumeSource `json:"persistentVolumeClaim,omitempty"`
 	DataVolume            *DataVolumeVolumeSource            `json:"dataVolume,omitempty"`
 }
@@ -167,10 +168,21 @@ type CloudInitVolumeSource struct {
 	NetworkDataSecretName string `json:"networkDataSecretName,omitempty"`
 }
 
+// Deprecated: Use ImageRootfsVolumeSource instead.
 type ContainerRootfsVolumeSource struct {
 	Image           string            `json:"image"`
 	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	Size            resource.Quantity `json:"size"`
+}
+
+// ImageRootfsVolumeSource uses the whole filesystem of a container image as
+// the VM's rootfs. The image must be bootable, i.e. contain an init such as
+// systemd, and is booted with the kernel in spec.instance.kernel.
+type ImageRootfsVolumeSource struct {
+	Image           string            `json:"image"`
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// Size of the rootfs disk.
+	Size resource.Quantity `json:"size"`
 }
 
 type PersistentVolumeClaimVolumeSource struct {

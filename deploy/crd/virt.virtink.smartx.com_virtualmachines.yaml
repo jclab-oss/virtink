@@ -1519,6 +1519,7 @@ spec:
                       - image
                       type: object
                     containerRootfs:
+                      description: 'Deprecated: Use ImageRootfsVolumeSource instead.'
                       properties:
                         image:
                           type: string
@@ -1544,6 +1545,29 @@ spec:
                           type: string
                       required:
                       - volumeName
+                      type: object
+                    imageRootfs:
+                      description: |-
+                        ImageRootfsVolumeSource uses the whole filesystem of a container image as
+                        the VM's rootfs. The image must be bootable, i.e. contain an init such as
+                        systemd, and is booted with the kernel in spec.instance.kernel.
+                      properties:
+                        image:
+                          type: string
+                        imagePullPolicy:
+                          description: PullPolicy describes a policy for if/when to
+                            pull a container image
+                          type: string
+                        size:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          description: Size of the rootfs disk.
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                      required:
+                      - image
+                      - size
                       type: object
                     name:
                       type: string

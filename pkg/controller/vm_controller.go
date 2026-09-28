@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/smartxworks/virtink/pkg/rootfscache"
 	"github.com/smartxworks/virtink/pkg/volumeutil"
 )
 
@@ -360,6 +361,33 @@ func (r *VMReconciler) reconcile(ctx context.Context, vm *virtv1alpha1.VirtualMa
 	return nil
 }
 
+// isRootDisk returns whether the disk is the root device in the kernel
+// cmdline, given as root=/dev/vdX. Disks appear to the guest in the order of
+// spec.instance.disks.
+func isRootDisk(vm *virtv1alpha1.VirtualMachine, diskName string) bool {
+	var root string
+	for _, field := range strings.Fields(vm.Spec.Instance.Kernel.Cmdline) {
+		if v, ok := strings.CutPrefix(field, "root="); ok {
+			root = v
+		}
+	}
+	for i, disk := range vm.Spec.Instance.Disks {
+		if disk.Name == diskName {
+			return i < 26 && root == "/dev/vd"+string(rune('a'+i))
+		}
+	}
+	return false
+}
+
+func findPodVolume(pod *corev1.Pod, name string) *corev1.Volume {
+	for i := range pod.Spec.Volumes {
+		if pod.Spec.Volumes[i].Name == name {
+			return &pod.Spec.Volumes[i]
+		}
+	}
+	return nil
+}
+
 // addImageVolume adds an image volume of the given image to the VM Pod for
 // the VM volume volumeName, and returns how it should be mounted.
 func addImageVolume(vmPod *corev1.Pod, volumeName string, image string, pullPolicy corev1.PullPolicy) corev1.VolumeMount {
@@ -595,6 +623,64 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 				Resources:       vm.Spec.Resources,
 				Args:            []string{volumeMount.MountPath + "/rootfs.raw", strconv.FormatInt(volume.ContainerRootfs.Size.Value(), 10)},
 				VolumeMounts:    []corev1.VolumeMount{volumeMount},
+			})
+		case volume.ImageRootfs != nil:
+			imageVolumeMount := addImageVolume(&vmPod, volume.Name, volume.ImageRootfs.Image, volume.ImageRootfs.ImagePullPolicy)
+
+			vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
+				Name: volume.Name,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			})
+			volumeMount := corev1.VolumeMount{
+				Name:      volume.Name,
+				MountPath: "/mnt/" + volume.Name,
+			}
+			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, volumeMount)
+
+			// The rootfs is built into the node's cache and is the backing file
+			// of the VM's disk, so the cache is mounted at the same path in the
+			// init and VM containers.
+			if findPodVolume(&vmPod, "virtink-rootfs-cache") == nil {
+				vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
+					Name: "virtink-rootfs-cache",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: rootfscache.DefaultDir,
+							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+						},
+					},
+				})
+				vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+					Name:      "virtink-rootfs-cache",
+					MountPath: rootfscache.DefaultDir,
+					ReadOnly:  true,
+				})
+			}
+
+			// Only the disk the kernel boots from must contain an init.
+			var initPath string
+			if vm.Spec.Instance.Kernel != nil && isRootDisk(vm, volume.Name) {
+				initPath = rootfscache.InitPathFromCmdline(vm.Spec.Instance.Kernel.Cmdline)
+			}
+			vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
+				Name:      "init-volume-" + volume.Name,
+				Image:     r.PrerunnerImageName,
+				Resources: vm.Spec.Resources,
+				Command:   []string{"virt-init-disk", "image-rootfs"},
+				Args: []string{
+					"--image-dir", imageVolumeMount.MountPath,
+					"--image", volume.ImageRootfs.Image,
+					"--size", strconv.FormatInt(volume.ImageRootfs.Size.Value(), 10),
+					"--init", initPath,
+					"--cache-dir", rootfscache.DefaultDir,
+					"--target", volumeMount.MountPath + "/rootfs.qcow2",
+				},
+				VolumeMounts: []corev1.VolumeMount{imageVolumeMount, volumeMount, {
+					Name:      "virtink-rootfs-cache",
+					MountPath: rootfscache.DefaultDir,
+				}},
 			})
 		case volume.PersistentVolumeClaim != nil, volume.DataVolume != nil:
 			ready, err := volumeutil.IsReady(ctx, r.Client, vm.Namespace, volume)
@@ -1193,6 +1279,14 @@ func (r *VMReconciler) calculateMigratableCondition(ctx context.Context, vm *vir
 				Status:  metav1.ConditionFalse,
 				Reason:  "VolumeNotMigratable",
 				Message: "migration is disabled when VM has a containerDisk volume",
+			}, nil
+		}
+		if volume.ImageRootfs != nil {
+			return &metav1.Condition{
+				Type:    string(virtv1alpha1.VirtualMachineMigratable),
+				Status:  metav1.ConditionFalse,
+				Reason:  "VolumeNotMigratable",
+				Message: "migration is disabled when VM has an imageRootfs volume",
 			}, nil
 		}
 	}

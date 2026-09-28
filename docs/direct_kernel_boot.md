@@ -20,8 +20,8 @@ spec:
       - name: ubuntu
   volumes:
     - name: ubuntu
-      containerRootfs:
-        image: smartxworks/virtink-container-rootfs-ubuntu
+      imageRootfs:
+        image: smartxworks/virtink-image-rootfs-ubuntu
         size: 4Gi
 ```
 
@@ -40,11 +40,13 @@ COPY vmlinux /vmlinux
 
 ## Rootfs Volumes
 
-The rootfs defines the root filesystem of the VM. The root parition from most distributions should work for direct kernel booting. However, Virtink does provide a more effortless way to build and use a rootfs using Docker with the `containerRootfs` volume feature.
+The rootfs defines the root filesystem of the VM. The root parition from most distributions should work for direct kernel booting. However, Virtink does provide a more effortless way to build and use a rootfs using Docker with the `imageRootfs` volume feature.
 
-### `containerRootfs` Volume
+### `imageRootfs` Volume
 
-The `containerRootfs` feature provides the ability to store and distribute VM rootfs in the container image registry. Everything you need to build a `containerRootfs` image is the Docker toolchain. No raw or QCOW2 images are involved. For building and using a `containerRootfs` image with direct kernel booting, refer to the [`containerRootfs` volume documentation](disks_and_volumes.md#containerrootfs-volume).
+The `imageRootfs` feature uses a container image as the VM rootfs, so it can be stored and distributed in the container image registry. Everything you need to build an `imageRootfs` image is the Docker toolchain. No raw or QCOW2 images are involved. For building and using an `imageRootfs` image with direct kernel booting, refer to the [`imageRootfs` volume documentation](disks_and_volumes.md#imagerootfs-volume).
+
+The [`containerRootfs`](disks_and_volumes.md#containerrootfs-volume) volume is deprecated in favor of `imageRootfs`.
 
 ### Other Types of Volumes
 

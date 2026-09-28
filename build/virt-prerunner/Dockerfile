@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -a -o
 
 FROM alpine:3.24.2
 
-RUN apk add --no-cache curl screen dnsmasq cdrkit iptables iproute2 qemu-virtiofsd dpkg util-linux s6-overlay nmap-ncat qemu-img
+RUN apk add --no-cache curl screen dnsmasq cdrkit iptables iproute2 qemu-virtiofsd dpkg util-linux s6-overlay nmap-ncat qemu-img e2fsprogs
 
 RUN set -eux; \
     mkdir /var/lib/cloud-hypervisor; \
