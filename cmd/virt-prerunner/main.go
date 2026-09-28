@@ -336,6 +336,14 @@ func setupBridgeNetwork(linkName string, cidr string, netConfig *cloudhypervisor
 		return fmt.Errorf("create bridge: %s", err)
 	}
 
+	// The link's IP is handed to the VM but kept on a dummy interface below.
+	// Linux answers ARP for local IPs on every interface by default, so the Pod
+	// would claim the VM's IP on the bridge, and guests probing their DHCP
+	// address for conflicts (e.g. dhcpcd) would decline it forever.
+	if err := setARPIgnore(bridge, 1); err != nil {
+		return fmt.Errorf("set bridge arp_ignore: %s", err)
+	}
+
 	linkMAC := link.Attrs().HardwareAddr
 	netConfig.Mac = linkMAC.String()
 
