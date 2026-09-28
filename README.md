@@ -149,6 +149,7 @@ You can also `Shutdown`, `Reset`, `Reboot` or `Pause` a running VM, or `Resume` 
 - [x] [SR-IOV NIC passthrough](docs/interfaces_and_networks.md#sriov-mode)
 - [ ] GPU passthrough
 - [x] [Dedicated CPU placement](docs/dedicated_cpu_placement.md)
+- [x] [Memory ballooning](docs/memory_ballooning.md)
 - [ ] VM devices hot-plug
 
 ## License

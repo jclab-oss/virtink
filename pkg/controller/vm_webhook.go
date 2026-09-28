@@ -82,11 +82,40 @@ func MutateVM(ctx context.Context, vm *virtv1alpha1.VirtualMachine, oldVM *virtv
 		vm.Spec.Instance.CPU.CoresPerSocket = 1
 	}
 
+	if vm.Spec.Instance.Memory.Size.IsZero() && vm.Spec.Instance.Memory.MaxSize != nil {
+		vm.Spec.Instance.Memory.Size = vm.Spec.Instance.Memory.MaxSize.DeepCopy()
+	}
 	if vm.Spec.Instance.Memory.Size.IsZero() {
 		if !vm.Spec.Resources.Requests.Memory().IsZero() {
 			vm.Spec.Instance.Memory.Size = vm.Spec.Resources.Requests.Memory().DeepCopy()
 		} else {
 			vm.Spec.Instance.Memory.Size = resource.MustParse("1Gi")
+		}
+	}
+
+	if vm.Spec.Instance.Memory.IsBallooningEnabled() {
+		if vm.Spec.Instance.Memory.MaxSize == nil {
+			maxSize := vm.Spec.Instance.Memory.Size.DeepCopy()
+			vm.Spec.Instance.Memory.MaxSize = &maxSize
+		}
+
+		// Request the guaranteed memory and limit to the maximum, so that memory can be overcommitted
+		// on the node while the guest is still able to grow up to maxSize.
+		memRequest := resource.MustParse(memoryOverhead)
+		memRequest.Add(*vm.Spec.Instance.Memory.MinSize)
+		memLimit := resource.MustParse(memoryOverhead)
+		memLimit.Add(*vm.Spec.Instance.Memory.MaxSize)
+		if vm.Spec.Resources.Requests == nil {
+			vm.Spec.Resources.Requests = corev1.ResourceList{}
+		}
+		if vm.Spec.Resources.Requests.Memory().IsZero() {
+			vm.Spec.Resources.Requests[corev1.ResourceMemory] = memRequest
+		}
+		if vm.Spec.Resources.Limits == nil {
+			vm.Spec.Resources.Limits = corev1.ResourceList{}
+		}
+		if vm.Spec.Resources.Limits.Memory().IsZero() {
+			vm.Spec.Resources.Limits[corev1.ResourceMemory] = memLimit
 		}
 	}
 
@@ -302,6 +331,7 @@ func ValidateVMSpec(ctx context.Context, spec *virtv1alpha1.VirtualMachineSpec, 
 	}
 
 	errs = append(errs, ValidateInstance(ctx, &spec.Instance, fieldPath.Child("instance"))...)
+	errs = append(errs, ValidateMemoryBallooning(ctx, spec, fieldPath)...)
 
 	volumeNames := map[string]struct{}{}
 	for i, volume := range spec.Volumes {
@@ -412,6 +442,48 @@ func ValidateMemory(ctx context.Context, memory *virtv1alpha1.Memory, fieldPath 
 		}
 	}
 
+	if memory.MaxSize != nil && !memory.MaxSize.Equal(memory.Size) {
+		errs = append(errs, field.Invalid(fieldPath.Child("maxSize"), memory.MaxSize.String(), "must equal to size"))
+	}
+	if memory.MinSize != nil {
+		if memory.MinSize.Sign() <= 0 {
+			errs = append(errs, field.Invalid(fieldPath.Child("minSize"), memory.MinSize.String(), "must be greater than 0"))
+		} else if memory.MinSize.Cmp(memory.Size) > 0 {
+			errs = append(errs, field.Invalid(fieldPath.Child("minSize"), memory.MinSize.String(), "must not be greater than maxSize"))
+		}
+	}
+
+	return errs
+}
+
+func ValidateMemoryBallooning(ctx context.Context, spec *virtv1alpha1.VirtualMachineSpec, fieldPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+	if !spec.Instance.Memory.IsBallooningEnabled() {
+		return errs
+	}
+
+	minSizeField := fieldPath.Child("instance", "memory", "minSize")
+	if spec.Instance.Memory.Hugepages != nil {
+		errs = append(errs, field.Forbidden(minSizeField, "may not use memory ballooning with hugepages"))
+	}
+	// Dedicated CPU placement requires the Guaranteed QoS class, which forbids memory overcommitment.
+	if spec.Instance.CPU.DedicatedCPUPlacement {
+		errs = append(errs, field.Forbidden(minSizeField, "may not use memory ballooning with dedicated CPU placement"))
+	}
+	// VFIO pins all guest memory, so the balloon can not return any memory to the host.
+	for i, iface := range spec.Instance.Interfaces {
+		if iface.SRIOV != nil || iface.VDPA != nil {
+			errs = append(errs, field.Forbidden(fieldPath.Child("instance", "interfaces").Index(i), "may not use SR-IOV or vDPA interface with memory ballooning"))
+		}
+	}
+
+	if spec.Instance.Memory.MaxSize != nil {
+		memLimit := resource.MustParse(memoryOverhead)
+		memLimit.Add(*spec.Instance.Memory.MaxSize)
+		if limit := spec.Resources.Limits.Memory(); !limit.IsZero() && limit.Cmp(memLimit) < 0 {
+			errs = append(errs, field.Invalid(fieldPath.Child("resources", "limits").Child(string(corev1.ResourceMemory)), limit.String(), fmt.Sprintf("must not be less than %s", memLimit.String())))
+		}
+	}
 	return errs
 }
 
