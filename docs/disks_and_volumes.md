@@ -109,6 +109,8 @@ Cached disks are identified by, in order of preference:
 1. The digest in the image reference, e.g. `smartxworks/virtink-image-rootfs-ubuntu@sha256:...`. Pin images by digest to skip reading the image when the disk is cached.
 2. A hash of the image's filesystem, which is computed by reading the whole image each time a VM starts.
 
+Cached disks that are not used by any VM on the node are removed after 24 hours by `virt-daemon`, which can be changed with its `--rootfs-cache-ttl` flag. Note that the cache is not accounted for in the ephemeral storage of Pods.
+
 #### When to Use an `imageRootfs`
 
 `imageRootfs`s are ephemeral storage devices that can be assigned to any number of active VMs. This makes them an ideal tool for users who want to replicate a large number of VM workloads that do not require persistent data.

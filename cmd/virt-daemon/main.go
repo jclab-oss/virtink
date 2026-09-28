@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -16,6 +17,7 @@ import (
 	"github.com/smartxworks/virtink/pkg/daemon"
 	"github.com/smartxworks/virtink/pkg/daemon/deviceplugin"
 	"github.com/smartxworks/virtink/pkg/daemon/tcpproxy"
+	"github.com/smartxworks/virtink/pkg/rootfscache"
 )
 
 var (
@@ -32,8 +34,12 @@ func init() {
 func main() {
 	var metricsAddr string
 	var probeAddr string
+	var rootfsCacheTTL time.Duration
+	var rootfsCacheGCInterval time.Duration
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.DurationVar(&rootfsCacheTTL, "rootfs-cache-ttl", 24*time.Hour, "How long a cached imageRootfs disk is kept after it's no longer used by any VM on the node.")
+	flag.DurationVar(&rootfsCacheGCInterval, "rootfs-cache-gc-interval", 10*time.Minute, "How often unused cached imageRootfs disks are looked for.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -66,6 +72,17 @@ func main() {
 
 	if err = mgr.Add(deviceplugin.NewDevicePluginManager()); err != nil {
 		setupLog.Error(err, "unable to create device plugin manager")
+		os.Exit(1)
+	}
+
+	if err = mgr.Add(&rootfscache.GarbageCollector{
+		Cache:    rootfscache.Cache{Dir: rootfscache.DefaultDir},
+		PodsDir:  "/var/lib/kubelet/pods",
+		TTL:      rootfsCacheTTL,
+		Interval: rootfsCacheGCInterval,
+		Log:      ctrl.Log.WithName("rootfs-cache-gc"),
+	}); err != nil {
+		setupLog.Error(err, "unable to create rootfs cache garbage collector")
 		os.Exit(1)
 	}
 

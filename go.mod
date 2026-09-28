@@ -5,6 +5,7 @@ go 1.26.8
 require (
 	github.com/cyphar/filepath-securejoin v0.5.0
 	github.com/docker/docker v28.5.0+incompatible
+	github.com/go-logr/logr v1.4.3
 	github.com/golang/mock v1.6.0
 	github.com/google/uuid v1.6.0
 	github.com/hoisie/mustache v0.0.0-20160804235033-6375acf62c69
@@ -50,7 +51,6 @@ require (
 	github.com/fatih/color v1.19.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.1 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/jsonreference v0.21.5 // indirect
