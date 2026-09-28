@@ -184,7 +184,9 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 		for _, volume := range vm.Spec.Volumes {
 			if volume.Name == fs.Name {
 				socketPath := fmt.Sprintf("/var/run/virtink/virtiofsd/%s.sock", volume.Name)
-				if err := exec.Command("/usr/lib/qemu/virtiofsd", "--socket-path="+socketPath, "-o", "source=/mnt/"+volume.Name, "-o", "sandbox=chroot").Start(); err != nil {
+				// File handles require CAP_DAC_READ_SEARCH, which the VM Pod does not have. virtiofsd 1.13.2 changed
+				// the default to "prefer" and then fails to apply its capabilities, so keep the previous default.
+				if err := exec.Command("/usr/lib/qemu/virtiofsd", "--socket-path="+socketPath, "-o", "source=/mnt/"+volume.Name, "-o", "sandbox=chroot", "--inode-file-handles=never").Start(); err != nil {
 					return nil, fmt.Errorf("start virtiofsd: %s", err)
 				}
 
