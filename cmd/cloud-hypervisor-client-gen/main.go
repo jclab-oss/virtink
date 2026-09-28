@@ -18,7 +18,7 @@ import (
 var clientTemplate string
 
 func main() {
-	resp, err := http.Get("https://raw.githubusercontent.com/cloud-hypervisor/cloud-hypervisor/v42.0/vmm/src/api/openapi/cloud-hypervisor.yaml")
+	resp, err := http.Get("https://raw.githubusercontent.com/cloud-hypervisor/cloud-hypervisor/v53.0/vmm/src/api/openapi/cloud-hypervisor.yaml")
 	if err != nil {
 		panic(err)
 	}
@@ -39,6 +39,12 @@ func main() {
 		eps = append(eps, *newEndpoint(path, pathItem))
 	}
 	sort.Sort(endpointSorter(eps))
+
+	for name, schema := range doc.Components.Schemas {
+		if schema.Type == "string" {
+			stringTypes[name] = true
+		}
+	}
 
 	var tps []type_
 	for name, schema := range doc.Components.Schemas {
@@ -120,17 +126,39 @@ func newEndpoint(path string, pathItem *openapi.PathItem) *endpoint {
 	return ep
 }
 
+// stringTypes holds the names of string (enum) schemas, which are generated
+// as named string types and referenced by value instead of by pointer.
+var stringTypes = map[string]bool{}
+
 type type_ struct {
-	Name   string  `json:"name,omitempty"`
-	Desc   string  `json:"desc,omitempty"`
-	Fields []field `json:"fields,omitempty"`
+	Name     string      `json:"name,omitempty"`
+	Desc     string      `json:"desc,omitempty"`
+	IsString bool        `json:"isString,omitempty"`
+	HasEnums bool        `json:"hasEnums,omitempty"`
+	Enums    []enumValue `json:"enums,omitempty"`
+	Fields   []field     `json:"fields,omitempty"`
+}
+
+type enumValue struct {
+	Name  string `json:"name,omitempty"`
+	Type  string `json:"type,omitempty"`
+	Value string `json:"value,omitempty"`
 }
 
 func newType(name string, schema *openapi.Schema) *type_ {
 	tp := &type_{
-		Name: name,
-		Desc: schema.Description,
+		Name:     name,
+		Desc:     strings.TrimSpace(schema.Description),
+		IsString: schema.Type == "string",
 	}
+	for _, value := range schema.Enum {
+		tp.Enums = append(tp.Enums, enumValue{
+			Name:  name + strcase.ToCamel(value),
+			Type:  name,
+			Value: value,
+		})
+	}
+	tp.HasEnums = len(tp.Enums) > 0
 	for fieldName, fieldSchema := range schema.Properties {
 		var required bool
 		for _, requiredFieldName := range schema.Required {
@@ -165,7 +193,11 @@ func newField(key string, schema *openapi.Schema, required bool) *field {
 func schemaToTypeName(schema *openapi.Schema) string {
 	if schema.Ref != "" {
 		segs := strings.Split(schema.Ref, "/")
-		return "*" + segs[len(segs)-1]
+		name := segs[len(segs)-1]
+		if stringTypes[name] {
+			return name
+		}
+		return "*" + name
 	}
 
 	switch schema.Type {

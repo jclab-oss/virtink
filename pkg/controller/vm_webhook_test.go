@@ -407,6 +407,27 @@ func TestValidateVM(t *testing.T) {
 	}, {
 		vm: func() *virtv1alpha1.VirtualMachine {
 			vm := validVM.DeepCopy()
+			vm.Spec.Instance.Kernel = &virtv1alpha1.Kernel{Image: "kernel", Cmdline: "root=/dev/vda rw"}
+			vm.Spec.Volumes[0].VolumeSource = virtv1alpha1.VolumeSource{
+				ImageRootfs: &virtv1alpha1.ImageRootfsVolumeSource{
+					Image: "ubuntu",
+					Size:  resource.MustParse("4Gi"),
+				},
+			}
+			return vm
+		}(),
+	}, {
+		vm: func() *virtv1alpha1.VirtualMachine {
+			vm := validVM.DeepCopy()
+			vm.Spec.Volumes[0].VolumeSource = virtv1alpha1.VolumeSource{
+				ImageRootfs: &virtv1alpha1.ImageRootfsVolumeSource{},
+			}
+			return vm
+		}(),
+		invalidFields: []string{"spec.instance.kernel", "spec.volumes[0].imageRootfs.image", "spec.volumes[0].imageRootfs.size"},
+	}, {
+		vm: func() *virtv1alpha1.VirtualMachine {
+			vm := validVM.DeepCopy()
 			vm.Spec.Volumes[0].ContainerDisk.Image = "updated-container-disk-image"
 			vm.Spec.Volumes[2].PersistentVolumeClaim.ClaimName = "updated-pvc-name"
 			return vm

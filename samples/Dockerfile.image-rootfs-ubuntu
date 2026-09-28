@@ -1,0 +1,16 @@
+FROM ubuntu:jammy AS rootfs
+
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends systemd-sysv udev lsb-release cloud-init sudo openssh-server && \
+    rm -rf /var/lib/apt/lists/*
+
+# /etc/resolv.conf can't be changed in a RUN step since it's mounted by the
+# builder, so the rootfs is fixed up in another stage.
+FROM alpine:3.22.1 AS fixup
+
+COPY --from=rootfs / /rootfs
+RUN ln -sf ../run/systemd/resolve/stub-resolv.conf /rootfs/etc/resolv.conf
+
+FROM scratch
+
+COPY --from=fixup /rootfs /

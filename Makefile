@@ -1,6 +1,6 @@
 LOCALBIN ?= $(shell pwd)/bin
 ENVTEST ?= $(LOCALBIN)/setup-envtest
-ENVTEST_K8S_VERSION = 1.23
+ENVTEST_K8S_VERSION = 1.35.0
 KIND ?= $(LOCALBIN)/kind
 CMCTL ?= $(LOCALBIN)/cmctl
 SKAFFOLD ?= $(LOCALBIN)/skaffold
@@ -34,12 +34,12 @@ $(ENVTEST): $(LOCALBIN)
 .PHONY: kind
 kind: $(KIND)
 $(KIND): $(LOCALBIN)
-	curl -sLo $(KIND) https://kind.sigs.k8s.io/dl/v0.14.0/kind-$(GOOS)-$(GOARCH) && chmod +x $(KIND)
+	curl -sLo $(KIND) https://kind.sigs.k8s.io/dl/v0.33.0/kind-$(GOOS)-$(GOARCH) && chmod +x $(KIND)
 
 .PHONY: kubectl
 kubectl: $(KUBECTL)
 $(KUBECTL): $(LOCALBIN)
-	curl -sLo $(KUBECTL) https://dl.k8s.io/release/v1.24.0/bin/$(GOOS)/$(GOARCH)/kubectl && chmod +x $(KUBECTL)
+	curl -sLo $(KUBECTL) https://dl.k8s.io/release/v1.36.4/bin/$(GOOS)/$(GOARCH)/kubectl && chmod +x $(KUBECTL)
 
 .PHONY: cmctl
 cmctl: $(CMCTL)
@@ -79,6 +79,7 @@ e2e-image:
 	docker buildx build -t virt-controller:e2e -f build/virt-controller/Dockerfile --build-arg PRERUNNER_IMAGE=virt-prerunner:e2e --load .
 	docker buildx build -t virt-daemon:e2e -f build/virt-daemon/Dockerfile --load .
 	docker buildx build -t virt-prerunner:e2e -f build/virt-prerunner/Dockerfile  --load .
+	docker buildx build -t virtink-image-rootfs-ubuntu:e2e -f samples/Dockerfile.image-rootfs-ubuntu --load .
 
 e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	echo "e2e kind cluster: $(E2E_KIND_CLUSTER_NAME)"
@@ -87,6 +88,7 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-controller:e2e
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-daemon:e2e
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virt-prerunner:e2e
+	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) virtink-image-rootfs-ubuntu:e2e
 
 	docker pull docker.io/calico/cni:v3.23.5
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) docker.io/calico/cni:v3.23.5
@@ -150,7 +152,7 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) smartxworks/virtink-container-disk-ubuntu
 	docker pull smartxworks/virtink-container-rootfs-ubuntu
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) smartxworks/virtink-container-rootfs-ubuntu
-	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUTTL) test --config test/e2e/kuttl-test.yaml
+	PATH=$(LOCALBIN):$(PATH) KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUTTL) test --config test/e2e/kuttl-test.yaml
 
 # kuttl does not wait for test namespaces to be deleted. Wait for them and their NFS volumes, and unmount NFS
 # volumes left on nodes while the in-cluster NFS server is still running, otherwise the kernel NFS client

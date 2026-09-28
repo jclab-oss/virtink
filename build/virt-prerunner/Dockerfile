@@ -11,22 +11,23 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 RUN --mount=type=cache,target=/root/.cache/go-build go build -a cmd/virt-prerunner/main.go
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -a -o virt-init-disk ./cmd/virt-init-disk
 
 FROM alpine:3.24.2
 
-RUN apk add --no-cache curl screen dnsmasq cdrkit iptables iproute2 qemu-virtiofsd dpkg util-linux s6-overlay nmap-ncat
+RUN apk add --no-cache curl screen dnsmasq cdrkit iptables iproute2 qemu-virtiofsd dpkg util-linux s6-overlay nmap-ncat qemu-img e2fsprogs
 
 RUN set -eux; \
     mkdir /var/lib/cloud-hypervisor; \
     case "$(uname -m)" in \
         'x86_64') \
-            curl -sLo /usr/bin/cloud-hypervisor https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v42.0/cloud-hypervisor-static; \
-            curl -sLo /usr/bin/ch-remote https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v42.0/ch-remote-static; \
-            curl -sLo /var/lib/cloud-hypervisor/hypervisor-fw https://github.com/cloud-hypervisor/rust-hypervisor-firmware/releases/download/0.4.0/hypervisor-fw; \
+            curl -sLo /usr/bin/cloud-hypervisor https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v53.0/cloud-hypervisor-static; \
+            curl -sLo /usr/bin/ch-remote https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v53.0/ch-remote-static; \
+            curl -sLo /var/lib/cloud-hypervisor/hypervisor-fw https://github.com/cloud-hypervisor/rust-hypervisor-firmware/releases/download/0.5.0/hypervisor-fw; \
             ;; \
         'aarch64') \
-            curl -sLo /usr/bin/cloud-hypervisor https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v42.0/cloud-hypervisor-static-aarch64; \
-            curl -sLo /usr/bin/ch-remote https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v42.0/ch-remote-static-aarch64; \
+            curl -sLo /usr/bin/cloud-hypervisor https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v53.0/cloud-hypervisor-static-aarch64; \
+            curl -sLo /usr/bin/ch-remote https://github.com/cloud-hypervisor/cloud-hypervisor/releases/download/v53.0/ch-remote-static-aarch64; \
             curl -sLo /var/lib/cloud-hypervisor/CLOUDHV_EFI.fd https://github.com/smartxworks/cloud-hypervisor-edk2-builder/releases/download/20220706/CLOUDHV_EFI.fd; \
             ;; \
         *) echo >&2 "error: unsupported architecture '$(uname -m)'"; exit 1 ;; \
@@ -52,3 +53,4 @@ COPY build/virt-prerunner/iptables-wrapper /sbin/iptables-wrapper
 RUN update-alternatives --install /sbin/iptables iptables /sbin/iptables-wrapper 100
 
 ADD build/virt-prerunner/virt-init-volume.sh /usr/bin/virt-init-volume
+COPY --from=builder /workspace/virt-init-disk /usr/bin/virt-init-disk

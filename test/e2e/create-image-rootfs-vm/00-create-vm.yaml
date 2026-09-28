@@ -1,0 +1,67 @@
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: ubuntu-image-rootfs-1
+spec:
+  instance:
+    memory:
+      size: 1Gi
+    kernel:
+      image: smartxworks/virtink-kernel-5.15.12
+      imagePullPolicy: IfNotPresent
+      cmdline: "console=ttyS0 root=/dev/vda rw"
+    disks:
+      - name: ubuntu
+      - name: cloud-init
+    interfaces:
+      - name: pod
+  volumes:
+    - name: ubuntu
+      imageRootfs:
+        image: virtink-image-rootfs-ubuntu:e2e
+        imagePullPolicy: IfNotPresent
+        size: 4Gi
+    - name: cloud-init
+      cloudInit:
+        userData: |-
+          #cloud-config
+          password: password
+          chpasswd: { expire: False }
+          ssh_pwauth: True
+  networks:
+    - name: pod
+      pod: {}
+---
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachine
+metadata:
+  name: ubuntu-image-rootfs-2
+spec:
+  instance:
+    memory:
+      size: 1Gi
+    kernel:
+      image: smartxworks/virtink-kernel-5.15.12
+      imagePullPolicy: IfNotPresent
+      cmdline: "console=ttyS0 root=/dev/vda rw"
+    disks:
+      - name: ubuntu
+      - name: cloud-init
+    interfaces:
+      - name: pod
+  volumes:
+    - name: ubuntu
+      imageRootfs:
+        image: virtink-image-rootfs-ubuntu:e2e
+        imagePullPolicy: IfNotPresent
+        size: 4Gi
+    - name: cloud-init
+      cloudInit:
+        userData: |-
+          #cloud-config
+          password: password
+          chpasswd: { expire: False }
+          ssh_pwauth: True
+  networks:
+    - name: pod
+      pod: {}

@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
+	"github.com/smartxworks/virtink/pkg/rootfscache"
 	"github.com/smartxworks/virtink/pkg/volumeutil"
 )
 
@@ -360,6 +361,53 @@ func (r *VMReconciler) reconcile(ctx context.Context, vm *virtv1alpha1.VirtualMa
 	return nil
 }
 
+// isRootDisk returns whether the disk is the root device in the kernel
+// cmdline, given as root=/dev/vdX. Disks appear to the guest in the order of
+// spec.instance.disks.
+func isRootDisk(vm *virtv1alpha1.VirtualMachine, diskName string) bool {
+	var root string
+	for _, field := range strings.Fields(vm.Spec.Instance.Kernel.Cmdline) {
+		if v, ok := strings.CutPrefix(field, "root="); ok {
+			root = v
+		}
+	}
+	for i, disk := range vm.Spec.Instance.Disks {
+		if disk.Name == diskName {
+			return i < 26 && root == "/dev/vd"+string(rune('a'+i))
+		}
+	}
+	return false
+}
+
+func findPodVolume(pod *corev1.Pod, name string) *corev1.Volume {
+	for i := range pod.Spec.Volumes {
+		if pod.Spec.Volumes[i].Name == name {
+			return &pod.Spec.Volumes[i]
+		}
+	}
+	return nil
+}
+
+// addImageVolume adds an image volume of the given image to the VM Pod for
+// the VM volume volumeName, and returns how it should be mounted.
+func addImageVolume(vmPod *corev1.Pod, volumeName string, image string, pullPolicy corev1.PullPolicy) corev1.VolumeMount {
+	name := "virtink-image-" + volumeName
+	vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			Image: &corev1.ImageVolumeSource{
+				Reference:  image,
+				PullPolicy: pullPolicy,
+			},
+		},
+	})
+	return corev1.VolumeMount{
+		Name:      name,
+		MountPath: "/mnt/virtink-images/" + volumeName,
+		ReadOnly:  true,
+	}
+}
+
 func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*corev1.Pod, error) {
 	vmPod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -417,23 +465,17 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 		vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
 			Name: "virtink-kernel",
 			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
+				Image: &corev1.ImageVolumeSource{
+					Reference:  vm.Spec.Instance.Kernel.Image,
+					PullPolicy: vm.Spec.Instance.Kernel.ImagePullPolicy,
+				},
 			},
 		})
 
-		volumeMount := corev1.VolumeMount{
+		vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "virtink-kernel",
 			MountPath: "/mnt/virtink-kernel",
-		}
-		vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, volumeMount)
-
-		vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
-			Name:            "init-kernel",
-			Image:           vm.Spec.Instance.Kernel.Image,
-			ImagePullPolicy: vm.Spec.Instance.Kernel.ImagePullPolicy,
-			Resources:       vm.Spec.Resources,
-			Args:            []string{volumeMount.MountPath + "/vmlinux"},
-			VolumeMounts:    []corev1.VolumeMount{volumeMount},
+			ReadOnly:  true,
 		})
 	}
 
@@ -457,6 +499,11 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 	for _, volume := range vm.Spec.Volumes {
 		switch {
 		case volume.ContainerDisk != nil:
+			// The disk in the image is the backing file of the VM's disk, so the
+			// image is mounted at the same path in the init and VM containers.
+			imageVolumeMount := addImageVolume(&vmPod, volume.Name, volume.ContainerDisk.Image, volume.ContainerDisk.ImagePullPolicy)
+			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, imageVolumeMount)
+
 			vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
 				Name: volume.Name,
 				VolumeSource: corev1.VolumeSource{
@@ -471,12 +518,12 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, volumeMount)
 
 			vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
-				Name:            "init-volume-" + volume.Name,
-				Image:           volume.ContainerDisk.Image,
-				ImagePullPolicy: volume.ContainerDisk.ImagePullPolicy,
-				Resources:       vm.Spec.Resources,
-				Args:            []string{volumeMount.MountPath + "/disk.raw"},
-				VolumeMounts:    []corev1.VolumeMount{volumeMount},
+				Name:         "init-volume-" + volume.Name,
+				Image:        r.PrerunnerImageName,
+				Resources:    vm.Spec.Resources,
+				Command:      []string{"virt-init-disk", "container-disk"},
+				Args:         []string{"--image-dir", imageVolumeMount.MountPath, "--target", volumeMount.MountPath + "/disk.qcow2"},
+				VolumeMounts: []corev1.VolumeMount{imageVolumeMount, volumeMount},
 			})
 		case volume.CloudInit != nil:
 			initContainer := corev1.Container{
@@ -576,6 +623,69 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 				Resources:       vm.Spec.Resources,
 				Args:            []string{volumeMount.MountPath + "/rootfs.raw", strconv.FormatInt(volume.ContainerRootfs.Size.Value(), 10)},
 				VolumeMounts:    []corev1.VolumeMount{volumeMount},
+			})
+		case volume.ImageRootfs != nil:
+			imageVolumeMount := addImageVolume(&vmPod, volume.Name, volume.ImageRootfs.Image, volume.ImageRootfs.ImagePullPolicy)
+
+			vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
+				Name: volume.Name,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			})
+			volumeMount := corev1.VolumeMount{
+				Name:      volume.Name,
+				MountPath: "/mnt/" + volume.Name,
+			}
+			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, volumeMount)
+
+			// The rootfs is built into the node's cache and is the backing file
+			// of the VM's disk, so the cache is mounted at the same path in the
+			// init and VM containers.
+			if findPodVolume(&vmPod, "virtink-rootfs-cache") == nil {
+				vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
+					Name: "virtink-rootfs-cache",
+					VolumeSource: corev1.VolumeSource{
+						HostPath: &corev1.HostPathVolumeSource{
+							Path: rootfscache.DefaultDir,
+							Type: &[]corev1.HostPathType{corev1.HostPathDirectoryOrCreate}[0],
+						},
+					},
+				})
+				vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
+					Name:      "virtink-rootfs-cache",
+					MountPath: rootfscache.DefaultDir,
+					ReadOnly:  true,
+				})
+			}
+
+			// Only the disk the kernel boots from must contain an init.
+			var initPath string
+			if vm.Spec.Instance.Kernel != nil && isRootDisk(vm, volume.Name) {
+				initPath = rootfscache.InitPathFromCmdline(vm.Spec.Instance.Kernel.Cmdline)
+			}
+			args := []string{
+				"--image-dir", imageVolumeMount.MountPath,
+				"--image", volume.ImageRootfs.Image,
+				"--size", strconv.FormatInt(volume.ImageRootfs.Size.Value(), 10),
+				"--init", initPath,
+				"--cache-dir", rootfscache.DefaultDir,
+				"--target", volumeMount.MountPath + "/rootfs.qcow2",
+			}
+			if rootfscache.DigestFromReference(volume.ImageRootfs.Image) == "" {
+				// virt-daemon writes the digest of the mounted image there.
+				args = append(args, "--image-ref-file", volumeMount.MountPath+"/"+rootfscache.ImageRefFileName)
+			}
+			vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
+				Name:      "init-volume-" + volume.Name,
+				Image:     r.PrerunnerImageName,
+				Resources: vm.Spec.Resources,
+				Command:   []string{"virt-init-disk", "image-rootfs"},
+				Args:      args,
+				VolumeMounts: []corev1.VolumeMount{imageVolumeMount, volumeMount, {
+					Name:      "virtink-rootfs-cache",
+					MountPath: rootfscache.DefaultDir,
+				}},
 			})
 		case volume.PersistentVolumeClaim != nil, volume.DataVolume != nil:
 			ready, err := volumeutil.IsReady(ctx, r.Client, vm.Namespace, volume)
@@ -857,7 +967,7 @@ func (r *VMReconciler) handleHotplugVolumes(ctx context.Context, vm *virtv1alpha
 		if err := r.Create(ctx, volumePod); err != nil {
 			return err
 		}
-		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "CreatedHotplugVolumePod", fmt.Sprintf("Created VM Hotplug Volume Pod %q", volumePod.Name))
+		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "CreatedHotplugVolumePod", "Created VM Hotplug Volume Pod %q", volumePod.Name)
 	}
 
 	for _, pod := range oldPods {
@@ -865,7 +975,7 @@ func (r *VMReconciler) handleHotplugVolumes(ctx context.Context, vm *virtv1alpha
 			if err := r.Client.Delete(ctx, pod); err != nil {
 				return err
 			}
-			r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedHotplugVolumePod", fmt.Sprintf("Deleted VM Hotplug Volume Pod %q", pod.Name))
+			r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedHotplugVolumePod", "Deleted VM Hotplug Volume Pod %q", pod.Name)
 		}
 	}
 	return nil
@@ -1176,6 +1286,14 @@ func (r *VMReconciler) calculateMigratableCondition(ctx context.Context, vm *vir
 				Message: "migration is disabled when VM has a containerDisk volume",
 			}, nil
 		}
+		if volume.ImageRootfs != nil {
+			return &metav1.Condition{
+				Type:    string(virtv1alpha1.VirtualMachineMigratable),
+				Status:  metav1.ConditionFalse,
+				Reason:  "VolumeNotMigratable",
+				Message: "migration is disabled when VM has an imageRootfs volume",
+			}, nil
+		}
 	}
 
 	if len(vm.Spec.Instance.FileSystems) > 0 {
@@ -1212,7 +1330,7 @@ func (r *VMReconciler) gcVMPods(ctx context.Context, vm *virtv1alpha1.VirtualMac
 		if err := r.Delete(ctx, &vmPod); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("delete VM Pod: %s", err)
 		}
-		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", fmt.Sprintf("Deleted VM Pod %q", vmPod.Name))
+		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", "Deleted VM Pod %q", vmPod.Name)
 	}
 	return nil
 }
@@ -1234,7 +1352,7 @@ func (r *VMReconciler) deleteAllVMPods(ctx context.Context, vm *virtv1alpha1.Vir
 		if err := r.Delete(ctx, &vmPod); client.IgnoreNotFound(err) != nil {
 			return false, fmt.Errorf("delete VM Pod: %s", err)
 		}
-		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", fmt.Sprintf("Deleted VM Pod %q", vmPod.Name))
+		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", "Deleted VM Pod %q", vmPod.Name)
 	}
 	return false, nil
 }

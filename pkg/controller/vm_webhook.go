@@ -333,6 +333,7 @@ func ValidateVMSpec(ctx context.Context, spec *virtv1alpha1.VirtualMachineSpec, 
 	errs = append(errs, ValidateInstance(ctx, &spec.Instance, fieldPath.Child("instance"))...)
 	errs = append(errs, ValidateMemoryBallooning(ctx, spec, fieldPath)...)
 
+	kernelFieldPath := fieldPath.Child("instance", "kernel")
 	volumeNames := map[string]struct{}{}
 	for i, volume := range spec.Volumes {
 		fieldPath := fieldPath.Child("volumes").Index(i)
@@ -341,6 +342,9 @@ func ValidateVMSpec(ctx context.Context, spec *virtv1alpha1.VirtualMachineSpec, 
 		}
 		volumeNames[volume.Name] = struct{}{}
 		errs = append(errs, ValidateVolume(ctx, &volume, fieldPath)...)
+		if volume.ImageRootfs != nil && spec.Instance.Kernel == nil {
+			errs = append(errs, field.Required(kernelFieldPath, "imageRootfs volumes require direct kernel boot"))
+		}
 	}
 
 	networkNames := map[string]struct{}{}
@@ -669,6 +673,14 @@ func ValidateVolumeSource(ctx context.Context, source *virtv1alpha1.VolumeSource
 			errs = append(errs, ValidateContainerRootfsVolumeSource(ctx, source.ContainerRootfs, fieldPath.Child("containerRootfs"))...)
 		}
 	}
+	if source.ImageRootfs != nil {
+		cnt++
+		if cnt > 1 {
+			errs = append(errs, field.Forbidden(fieldPath.Child("imageRootfs"), "may not specify more than 1 volume source"))
+		} else {
+			errs = append(errs, ValidateImageRootfsVolumeSource(ctx, source.ImageRootfs, fieldPath.Child("imageRootfs"))...)
+		}
+	}
 	if source.PersistentVolumeClaim != nil {
 		cnt++
 		if cnt > 1 {
@@ -754,6 +766,22 @@ func ValidateCloudInitVolumeSource(ctx context.Context, source *virtv1alpha1.Clo
 }
 
 func ValidateContainerRootfsVolumeSource(ctx context.Context, source *virtv1alpha1.ContainerRootfsVolumeSource, fieldPath *field.Path) field.ErrorList {
+	var errs field.ErrorList
+	if source == nil {
+		errs = append(errs, field.Required(fieldPath, ""))
+		return errs
+	}
+
+	if source.Image == "" {
+		errs = append(errs, field.Required(fieldPath.Child("image"), ""))
+	}
+	if source.Size.Value() <= 0 {
+		errs = append(errs, field.Invalid(fieldPath.Child("size"), source.Size.Value(), "must be greater than 0"))
+	}
+	return errs
+}
+
+func ValidateImageRootfsVolumeSource(ctx context.Context, source *virtv1alpha1.ImageRootfsVolumeSource, fieldPath *field.Path) field.ErrorList {
 	var errs field.ErrorList
 	if source == nil {
 		errs = append(errs, field.Required(fieldPath, ""))

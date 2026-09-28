@@ -20,8 +20,8 @@ spec:
       - name: ubuntu
   volumes:
     - name: ubuntu
-      containerRootfs:
-        image: smartxworks/virtink-container-rootfs-ubuntu
+      imageRootfs:
+        image: smartxworks/virtink-image-rootfs-ubuntu
         size: 4Gi
 ```
 
@@ -29,22 +29,24 @@ spec:
 
 It's possible to build and use your own kernel for direct kernel booting. To build a kernel that can work properly with Cloud Hypervisor, refer to the [Cloud Hypervisor documentation](https://github.com/cloud-hypervisor/cloud-hypervisor#building-your-kernel).
 
-After successfully built your kernel, you should have a `vmlinux` file ready to be injected into a container image. The `vmlinux` file must be placed at exactly the `/vmlinux` path and the image must be based on `smartxworks/virtink-kernel-base`.
+After successfully built your kernel, you should have a `vmlinux` file ready to be injected into a container image. The `vmlinux` file must be placed at exactly the `/vmlinux` path. The kernel image is mounted into the VM Pod as an [image volume](https://kubernetes.io/docs/concepts/storage/volumes/#image), so it needs nothing but the kernel.
 
 Below is an example of injecting a local kernel into a container image:
 
 ```dockerfile
-FROM smartxworks/virtink-kernel-base
+FROM scratch
 COPY vmlinux /vmlinux
 ```
 
 ## Rootfs Volumes
 
-The rootfs defines the root filesystem of the VM. The root parition from most distributions should work for direct kernel booting. However, Virtink does provide a more effortless way to build and use a rootfs using Docker with the `containerRootfs` volume feature.
+The rootfs defines the root filesystem of the VM. The root parition from most distributions should work for direct kernel booting. However, Virtink does provide a more effortless way to build and use a rootfs using Docker with the `imageRootfs` volume feature.
 
-### `containerRootfs` Volume
+### `imageRootfs` Volume
 
-The `containerRootfs` feature provides the ability to store and distribute VM rootfs in the container image registry. Everything you need to build a `containerRootfs` image is the Docker toolchain. No raw or QCOW2 images are involved. For building and using a `containerRootfs` image with direct kernel booting, refer to the [`containerRootfs` volume documentation](disks_and_volumes.md#containerrootfs-volume).
+The `imageRootfs` feature uses a container image as the VM rootfs, so it can be stored and distributed in the container image registry. Everything you need to build an `imageRootfs` image is the Docker toolchain. No raw or QCOW2 images are involved. For building and using an `imageRootfs` image with direct kernel booting, refer to the [`imageRootfs` volume documentation](disks_and_volumes.md#imagerootfs-volume).
+
+The [`containerRootfs`](disks_and_volumes.md#containerrootfs-volume) volume is deprecated in favor of `imageRootfs`.
 
 ### Other Types of Volumes
 

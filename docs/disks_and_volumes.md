@@ -14,7 +14,8 @@ Volumes are configured in `spec.volumes`. Each volume should has a unique name a
 
 - [`containerDisk`](#containerdisk-volume)
 - [`cloudInit`](#cloudinit-volume)
-- [`containerRootfs`](#containerrootfs-volume)
+- [`imageRootfs`](#imagerootfs-volume)
+- [`containerRootfs`](#containerrootfs-volume) (deprecated)
 - [`persistentVolumeClaim`](#persistentvolumeclaim-volume)
 - [`dataVolume`](#datavolume-volume)
 
@@ -30,14 +31,20 @@ The `containerDisk` feature provides the ability to store and distribute VM disk
 
 `containerDisk`s are not a good solution for any workload that requires persistent root disks across VM restarts.
 
+#### How a `containerDisk` Is Used
+
+The image is mounted into the VM Pod as a read-only [image volume](https://kubernetes.io/docs/concepts/storage/volumes/#image), so it's pulled and stored only once per node. Raw and QCOW2 disks are not copied: each VM gets a QCOW2 overlay in its Pod's `emptyDir` with the disk in the image as its backing file, and only the blocks written by the VM are stored in the overlay. Disks in other formats supported by `qemu-img` are converted into the VM's Pod when the VM starts.
+
+A disk referencing other files, such as a QCOW2 image with a backing file or an external data file, is rejected.
+
 #### `containerDisk` Workflow Example
 
-Disks must be placed at exactly the `/disk` path. Raw and QCOW2 formats are supported. QCOW2 is recommended in order to reduce the container image's size. `containerDisk`s must be based on `smartxworks/virtink-container-disk-base`.
+Disks must be placed at exactly the `/disk` path. Alternatively, `/disk` can be a directory containing exactly one disk file, which is the layout of KubeVirt's container disks. Raw and QCOW2 formats are recommended so that disks are shared rather than copied, and QCOW2 (optionally compressed) reduces the container image's size. The image needs nothing but the disk, and its entrypoint is never run.
 
 Below is an example of injecting a remote VM disk image into a container image:
 
 ```dockerfile
-FROM smartxworks/virtink-container-disk-base
+FROM scratch
 ADD https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img /disk
 ```
 
@@ -70,7 +77,70 @@ spec:
 
 You can also use `userDataBase64` if you prefer to use the Base64 encoded version, or use `userDataSecretName` to move cloud-init data outside the VM spec and wrap them in a Secret.
 
+### `imageRootfs` Volume
+
+The `imageRootfs` feature boots a VM from the filesystem of an ordinary container image, such as an image built `FROM ubuntu:jammy`. The image's whole filesystem becomes the VM's rootfs, with no further requirements of disk partitions or file system formatting. Since the image is used as-is, it must be bootable: it must contain an init (by default `/sbin/init`, or the one given with `init=` in the kernel `cmdline`), such as systemd. The image's entrypoint and other configuration are not used.
+
+An image rootfs is not bootable by a firmware, so it's used with Virtink's [direct kernel boot](direct_kernel_boot.md) feature, which is required. Below is an example that directly boots a VM with a given kernel and an `imageRootfs` disk:
+
+```yaml
+apiVersion: virt.virtink.smartx.com/v1alpha1
+kind: VirtualMachine
+spec:
+  instance:
+    kernel:
+      image: smartxworks/virtink-kernel-5.15.12
+      cmdline: "console=ttyS0 root=/dev/vda rw"
+    disks:
+      - name: ubuntu
+  volumes:
+    - name: ubuntu
+      imageRootfs:
+        image: smartxworks/virtink-image-rootfs-ubuntu
+        size: 4Gi
+```
+
+#### How an `imageRootfs` Is Used
+
+The image is mounted into the VM Pod as a read-only [image volume](https://kubernetes.io/docs/concepts/storage/volumes/#image). When a VM starts, an ext4 disk of the given `size` is built from the image into a cache on the node at `/var/lib/virtink/rootfs-cache`, unless the cache already has one. Each VM then gets a QCOW2 overlay in its Pod's `emptyDir` with the cached disk as its backing file, so only the blocks written by the VM are stored per VM.
+
+Cached disks are identified by, in order of preference:
+
+1. The digest in the image reference, e.g. `smartxworks/virtink-image-rootfs-ubuntu@sha256:...`. Pin images by digest to skip reading the image when the disk is cached.
+2. The digest of the mounted image reported in the Pod status. This requires the `ImageVolumeWithDigest` feature gate (alpha since Kubernetes v1.35) to be enabled, and the container runtime to report the digests of image volumes, which neither containerd (as of v2.3) nor CRI-O supports yet.
+3. A hash of the image's filesystem, which is computed by reading the whole image each time a VM starts.
+
+Cached disks that are not used by any VM on the node are removed after 24 hours by `virt-daemon`, which can be changed with its `--rootfs-cache-ttl` flag. Note that the cache is not accounted for in the ephemeral storage of Pods.
+
+#### When to Use an `imageRootfs`
+
+`imageRootfs`s are ephemeral storage devices that can be assigned to any number of active VMs. This makes them an ideal tool for users who want to replicate a large number of VM workloads that do not require persistent data.
+
+#### When to Not Use an `imageRootfs`
+
+`imageRootfs`s are not a good solution for any workload that requires persistent root disks across VM restarts. VMs with `imageRootfs` volumes can't be migrated.
+
+#### `imageRootfs` Workflow Example
+
+Packages like systemd, cloud-init and openssh-server should be installed to make the image a valid and useful VM rootfs. Below is an example of building a Ubuntu VM rootfs image based on the Ubuntu container image. Since `/etc/resolv.conf` is managed by the image builder, it's replaced in a separate stage:
+
+```dockerfile
+FROM ubuntu:jammy AS rootfs
+RUN apt-get update -y && \
+    apt-get install -y --no-install-recommends systemd-sysv udev lsb-release cloud-init sudo openssh-server && \
+    rm -rf /var/lib/apt/lists/*
+
+FROM alpine AS fixup
+COPY --from=rootfs / /rootfs
+RUN ln -sf ../run/systemd/resolve/stub-resolv.conf /rootfs/etc/resolv.conf
+
+FROM scratch
+COPY --from=fixup /rootfs /
+```
+
 ### `containerRootfs` Volume
+
+**Deprecated**: Use [`imageRootfs`](#imagerootfs-volume) instead, which uses the image itself as the rootfs and shares it between VMs. A `containerRootfs` image can be converted by making `/rootfs` the root of the image, for example by replacing `FROM smartxworks/virtink-container-rootfs-base` and `COPY --from=rootfs / /rootfs` with `FROM scratch` and `COPY --from=rootfs / /`.
 
 The `containerRootfs` feature provides the ability to store and distribute VM rootfs in the container image registry. No network shared storage devices are utilized by `containerRootfs`s. The disks are pulled from the container registry and reside on the local node hosting the VMs that consume the disks.
 
