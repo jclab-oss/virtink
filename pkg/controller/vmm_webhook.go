@@ -29,6 +29,7 @@ type VMMValidator struct {
 var _ admission.Handler = &VMMValidator{}
 
 func (h *VMMValidator) SetupWebhookWithManager(mgr ctrl.Manager) error {
+	h.Client = mgr.GetClient()
 	h.decoder = admission.NewDecoder(mgr.GetScheme())
 
 	mgr.GetWebhookServer().Register("/validate-v1alpha1-virtualmachinemigration", &webhook.Admission{

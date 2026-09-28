@@ -9,7 +9,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
 )
@@ -77,4 +80,16 @@ func TestValidateVMM(t *testing.T) {
 			assert.Contains(t, err.Detail, tc.invalidDetail)
 		}
 	}
+}
+
+func TestVMMValidatorSetupWebhookWithManager(t *testing.T) {
+	mgr, err := ctrl.NewManager(&rest.Config{Host: "http://127.0.0.1:0"}, ctrl.Options{
+		Metrics: metricsserver.Options{BindAddress: "0"},
+	})
+	assert.NoError(t, err)
+
+	validator := &VMMValidator{}
+	assert.NoError(t, validator.SetupWebhookWithManager(mgr))
+	// ValidateVMName looks up the VM with the client, so it must be set by the setup.
+	assert.NotNil(t, validator.Client)
 }
