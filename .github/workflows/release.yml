@@ -5,73 +5,143 @@ on:
     tags:
       - v*
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - id: get_version
-        run: echo ::set-output name=version::${GITHUB_REF/refs\/tags\//}
+      # ghcr.io requires lowercase repository names
+      - run: echo "IMAGE_PREFIX=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
 
-      - uses: docker/setup-qemu-action@v2
+      - uses: docker/setup-qemu-action@v4
 
-      - uses: docker/setup-buildx-action@v2
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v2
+      - uses: docker/login-action@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - id: meta_virt_prerunner
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-virt-prerunner
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
 
       - id: build_virt_prerunner
-        uses: docker/build-push-action@v2
+        uses: docker/build-push-action@v7
         with:
           file: build/virt-prerunner/Dockerfile
-          tags: smartxworks/virt-prerunner:${{ steps.get_version.outputs.version }}
+          tags: ${{ steps.meta_virt_prerunner.outputs.tags }}
+          labels: ${{ steps.meta_virt_prerunner.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           push: true
 
-      - uses: docker/build-push-action@v2
+      - id: meta_virt_controller
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-virt-controller
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - id: build_virt_controller
+        uses: docker/build-push-action@v7
         with:
           file: build/virt-controller/Dockerfile
-          build-args: PRERUNNER_IMAGE=smartxworks/virt-prerunner:${{ steps.get_version.outputs.version }}@${{ steps.build_virt_prerunner.outputs.digest }}
-          tags: smartxworks/virt-controller:${{ steps.get_version.outputs.version }}
+          build-args: PRERUNNER_IMAGE=${{ env.IMAGE_PREFIX }}-virt-prerunner:${{ steps.meta_virt_prerunner.outputs.version }}@${{ steps.build_virt_prerunner.outputs.digest }}
+          tags: ${{ steps.meta_virt_controller.outputs.tags }}
+          labels: ${{ steps.meta_virt_controller.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           push: true
 
-      - uses: docker/build-push-action@v2
+      - id: meta_virt_daemon
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-virt-daemon
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - id: build_virt_daemon
+        uses: docker/build-push-action@v7
         with:
           file: build/virt-daemon/Dockerfile
-          tags: smartxworks/virt-daemon:${{ steps.get_version.outputs.version }}
+          tags: ${{ steps.meta_virt_daemon.outputs.tags }}
+          labels: ${{ steps.meta_virt_daemon.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           push: true
 
-      - uses: docker/build-push-action@v2
+      - id: meta_container_disk_base
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-container-disk-base
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - uses: docker/build-push-action@v7
         with:
           file: build/virtink-container-disk-base/Dockerfile
-          tags: smartxworks/virtink-container-disk-base
+          tags: ${{ steps.meta_container_disk_base.outputs.tags }}
+          labels: ${{ steps.meta_container_disk_base.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           push: true
 
-      - uses: docker/build-push-action@v2
+      - id: meta_kernel_base
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-kernel-base
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - uses: docker/build-push-action@v7
         with:
           file: build/virtink-kernel-base/Dockerfile
-          tags: smartxworks/virtink-kernel-base
+          tags: ${{ steps.meta_kernel_base.outputs.tags }}
+          labels: ${{ steps.meta_kernel_base.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           push: true
 
-      - uses: docker/build-push-action@v2
+      - id: meta_container_rootfs_base
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.IMAGE_PREFIX }}-container-rootfs-base
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - uses: docker/build-push-action@v7
         with:
           file: build/virtink-container-rootfs-base/Dockerfile
-          tags: smartxworks/virtink-container-rootfs-base
+          tags: ${{ steps.meta_container_rootfs_base.outputs.tags }}
+          labels: ${{ steps.meta_container_rootfs_base.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           push: true
 
-      - run: |
-          curl -sLo /tmp/skaffold https://storage.googleapis.com/skaffold/releases/latest/skaffold-linux-amd64
-          chmod +x /tmp/skaffold
-          /tmp/skaffold render --default-repo=smartxworks --offline=true > virtink.yaml
+      # skaffold --default-repo cannot produce the "<repo>-<image>" naming, so pin images with kustomize
+      - working-directory: deploy
+        run: |
+          kustomize edit set image \
+            virt-controller=${IMAGE_PREFIX}-virt-controller:${{ steps.meta_virt_controller.outputs.version }}@${{ steps.build_virt_controller.outputs.digest }} \
+            virt-daemon=${IMAGE_PREFIX}-virt-daemon:${{ steps.meta_virt_daemon.outputs.version }}@${{ steps.build_virt_daemon.outputs.digest }}
+          kustomize build . > ../virtink.yaml
 
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v3
         with:
           files: virtink.yaml

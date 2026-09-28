@@ -1,4 +1,4 @@
-FROM golang:1.25.1-alpine3.22 AS builder
+FROM golang:1.26.8-alpine3.24 AS builder
 
 WORKDIR /workspace
 
@@ -10,7 +10,7 @@ COPY cmd/ cmd/
 COPY pkg/ pkg/
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -a cmd/virt-controller/main.go
 
-FROM alpine:3.22.1
+FROM alpine:3.24.2
 
 ARG PRERUNNER_IMAGE
 ENV PRERUNNER_IMAGE=$PRERUNNER_IMAGE

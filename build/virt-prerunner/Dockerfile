@@ -1,4 +1,4 @@
-FROM golang:1.25.1-alpine3.22 AS builder
+FROM golang:1.26.8-alpine3.24 AS builder
 
 RUN apk add --no-cache gcc musl-dev
 
@@ -12,7 +12,7 @@ COPY cmd/ cmd/
 COPY pkg/ pkg/
 RUN --mount=type=cache,target=/root/.cache/go-build go build -a cmd/virt-prerunner/main.go
 
-FROM alpine:3.22.1
+FROM alpine:3.24.2
 
 RUN apk add --no-cache curl screen dnsmasq cdrkit iptables iproute2 qemu-virtiofsd dpkg util-linux s6-overlay nmap-ncat
 
