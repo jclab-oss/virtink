@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sys/unix"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -240,6 +241,13 @@ func (r *VMReconciler) reconcile(ctx context.Context, vm *virtv1alpha1.VirtualMa
 
 					vm.Status.PowerAction = ""
 					return nil
+				}
+
+				// Only update on value change, since status is compared with reflect.DeepEqual.
+				if vm.Spec.Instance.Memory.IsBallooningEnabled() && (vm.Status.Memory == nil || vm.Status.Memory.CurrentSize.Value() != vmInfo.MemoryActualSize) {
+					vm.Status.Memory = &virtv1alpha1.MemoryStatus{
+						CurrentSize: *resource.NewQuantity(vmInfo.MemoryActualSize, resource.BinarySI),
+					}
 				}
 
 				if err := r.reconcileHotplugVolumes(ctx, vm, vmInfo); err != nil {

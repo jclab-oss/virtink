@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"os"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -14,6 +15,7 @@ import (
 
 	virtv1alpha1 "github.com/smartxworks/virtink/pkg/apis/virt/v1alpha1"
 	"github.com/smartxworks/virtink/pkg/daemon"
+	"github.com/smartxworks/virtink/pkg/daemon/balloon"
 	"github.com/smartxworks/virtink/pkg/daemon/deviceplugin"
 	"github.com/smartxworks/virtink/pkg/daemon/tcpproxy"
 )
@@ -34,6 +36,13 @@ func main() {
 	var probeAddr string
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	balloonConfig := balloon.DefaultConfig()
+	var balloonInterval time.Duration
+	flag.DurationVar(&balloonInterval, "balloon-interval", 10*time.Second, "The interval to adjust memory balloons of VMs. 0 disables automatic ballooning.")
+	flag.Float64Var(&balloonConfig.LowWatermark, "balloon-low-watermark", balloonConfig.LowWatermark, "Inflate balloons when the ratio of node available memory drops below this value.")
+	flag.Float64Var(&balloonConfig.HighWatermark, "balloon-high-watermark", balloonConfig.HighWatermark, "Deflate balloons when the ratio of node available memory rises above this value.")
+	flag.Float64Var(&balloonConfig.PSIThreshold, "balloon-psi-threshold", balloonConfig.PSIThreshold, "Inflate balloons when the node memory PSI some avg10 (%) exceeds this value.")
+	flag.Float64Var(&balloonConfig.StepRatio, "balloon-step-ratio", balloonConfig.StepRatio, "The ratio of (maxSize - minSize) to resize balloons by per interval.")
 	opts := zap.Options{
 		Development: true,
 	}
@@ -62,6 +71,19 @@ func main() {
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "VM")
 		os.Exit(1)
+	}
+
+	if balloonInterval > 0 {
+		if err = mgr.Add(&daemon.BalloonManager{
+			Client:   mgr.GetClient(),
+			NodeName: os.Getenv("NODE_NAME"),
+			Config:   balloonConfig,
+			Interval: balloonInterval,
+			ProcPath: "/proc",
+		}); err != nil {
+			setupLog.Error(err, "unable to create balloon manager")
+			os.Exit(1)
+		}
 	}
 
 	if err = mgr.Add(deviceplugin.NewDevicePluginManager()); err != nil {

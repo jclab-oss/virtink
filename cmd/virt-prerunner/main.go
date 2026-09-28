@@ -127,6 +127,16 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 		vmConfig.Memory.Hugepages = true
 	}
 
+	if vm.Spec.Instance.Memory.IsBallooningEnabled() {
+		// Boot with a deflated balloon. Free page reporting returns memory freed by the guest to the host,
+		// and virt-daemon inflates the balloon under node memory pressure.
+		vmConfig.Balloon = &cloudhypervisor.BalloonConfig{
+			Size:              0,
+			DeflateOnOom:      true,
+			FreePageReporting: true,
+		}
+	}
+
 	blockVolumes := map[string]bool{}
 	for _, volume := range strings.Split(os.Getenv("BLOCK_VOLUMES"), ",") {
 		blockVolumes[volume] = true
