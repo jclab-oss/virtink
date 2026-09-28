@@ -10,7 +10,7 @@ RUN go mod download
 
 COPY cmd/ cmd/
 COPY pkg/ pkg/
-RUN --mount=type=cache,target=/root/.cache/go-build go build -a cmd/virt-prerunner/main.go
+RUN --mount=type=cache,target=/root/.cache/go-build go build -a -o main ./cmd/virt-prerunner
 RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -a -o virt-init-disk ./cmd/virt-init-disk
 
 FROM alpine:3.24.2
