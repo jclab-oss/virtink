@@ -26,6 +26,22 @@ jobs:
           sudo modprobe -a nfs nfsv4 nfsd
           lsmod | grep nfs
 
+      - id: e2e-images-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: test/e2e/.images
+          key: e2e-images-${{ hashFiles('test/e2e/images.sha256') }}
+
+      # Downloads the images only if they are not cached.
+      - run: make e2e-images
+
+      # Saved right away rather than at the end of the job, so that the cache is kept even if e2e fails.
+      - if: steps.e2e-images-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: test/e2e/.images
+          key: e2e-images-${{ hashFiles('test/e2e/images.sha256') }}
+
       - run: make e2e
 
       - name: Show NFS kernel logs

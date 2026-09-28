@@ -1,0 +1,48 @@
+# Serves VM disk images downloaded by `make e2e-images` to CDI. CDI reads qcow2 images over HTTP with many
+# small range requests, which is too slow against a remote server. The images are mounted into kind nodes
+# at /e2e-images, see test/e2e/config/kind/config.yaml.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: e2e-images
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: images
+  namespace: e2e-images
+spec:
+  selector:
+    app: images
+  ports:
+    - port: 80
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: images
+  namespace: e2e-images
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: images
+  template:
+    metadata:
+      labels:
+        app: images
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:1.29-alpine
+          ports:
+            - containerPort: 80
+          volumeMounts:
+            - name: images
+              mountPath: /usr/share/nginx/html
+              readOnly: true
+      volumes:
+        - name: images
+          hostPath:
+            path: /e2e-images
+            type: Directory

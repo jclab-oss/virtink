@@ -58,6 +58,19 @@ kuttl: $(KUTTL)
 $(KUTTL): $(LOCALBIN)
 	curl -sLo $(KUTTL) https://github.com/kudobuilder/kuttl/releases/download/v0.12.1/kubectl-kuttl_0.12.1_$(GOOS)_$(shell uname -m) && chmod +x $(KUTTL)
 
+# VM disk images served to CDI in e2e tests. They are downloaded rather than
+# kept in git, and verified against test/e2e/images.sha256, which is also the
+# key of their cache in the e2e workflow.
+E2E_IMAGES_DIR := test/e2e/.images
+E2E_UBUNTU_IMAGE_URL := https://cloud-images.ubuntu.com/releases/jammy/release-20260913/ubuntu-22.04-server-cloudimg-amd64.img
+
+.PHONY: e2e-images
+e2e-images:
+	mkdir -p $(E2E_IMAGES_DIR)
+	cd $(E2E_IMAGES_DIR) && sha256sum --quiet -c ../images.sha256 >/dev/null 2>&1 || { \
+		curl -fsSLo ubuntu-22.04-server-cloudimg-amd64.img $(E2E_UBUNTU_IMAGE_URL) && \
+		sha256sum --quiet -c ../images.sha256; }
+
 E2E_KIND_CLUSTER_NAME := virtink-e2e-$(shell date "+%Y-%m-%d-%H-%M-%S")
 E2E_KIND_CLUSTER_KUBECONFIG := /tmp/$(E2E_KIND_CLUSTER_NAME).kubeconfig
 
@@ -67,7 +80,7 @@ e2e-image:
 	docker buildx build -t virt-daemon:e2e -f build/virt-daemon/Dockerfile --load .
 	docker buildx build -t virt-prerunner:e2e -f build/virt-prerunner/Dockerfile  --load .
 
-e2e: kind kubectl cmctl skaffold kuttl e2e-image
+e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	echo "e2e kind cluster: $(E2E_KIND_CLUSTER_NAME)"
 
 	$(KIND) create cluster --config test/e2e/config/kind/config.yaml --name $(E2E_KIND_CLUSTER_NAME) --kubeconfig $(E2E_KIND_CLUSTER_KUBECONFIG)
@@ -107,6 +120,8 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait -n cdi deployment cdi-operator --for condition=Available --timeout -1s
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f https://github.com/kubevirt/containerized-data-importer/releases/download/v1.53.0/cdi-cr.yaml
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait cdi.cdi.kubevirt.io cdi --for condition=Available --timeout -1s
+# Dirty page cache written to NFS exceeds the default importer memory limit (600M) and gets it OOM killed.
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) patch cdi cdi --type merge -p '{"spec":{"config":{"podResourceRequirements":{"requests":{"cpu":"100m","memory":"60M"},"limits":{"cpu":"1","memory":"2Gi"}}}}}'
 
 	docker pull itsthenetwork/nfs-server-alpine:12
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) itsthenetwork/nfs-server-alpine:12
@@ -120,6 +135,11 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) rollout status -n kube-system deployment csi-nfs-controller --timeout 10m
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) rollout status -n kube-system daemonset csi-nfs-node --timeout 10m
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f test/e2e/config/nfs/storageclass.yaml
+
+	docker pull nginx:1.29-alpine
+	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) nginx:1.29-alpine
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f test/e2e/config/images/images.yaml
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait -n e2e-images deployment images --for condition=Available --timeout 5m
 
 	PATH=$(LOCALBIN):$(PATH) $(SKAFFOLD) render --offline=true --default-repo="" --digest-source=tag --images virt-controller:e2e,virt-daemon:e2e | KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f -
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait -n virtink-system deployment virt-controller --for condition=Available --timeout -1s
