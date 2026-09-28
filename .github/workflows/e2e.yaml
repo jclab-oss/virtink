@@ -20,4 +20,14 @@ jobs:
         with:
           go-version: "1.26"
 
+      # kind nodes share the host kernel, which must provide the NFS client and server for the e2e NFS storage.
+      - name: Load NFS kernel modules
+        run: |
+          sudo modprobe -a nfs nfsv4 nfsd
+          lsmod | grep nfs
+
       - run: make e2e
+
+      - name: Show NFS kernel logs
+        if: failure()
+        run: sudo dmesg | grep -i -E "nfs|rpc" | tail -50 || true

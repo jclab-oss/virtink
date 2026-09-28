@@ -108,11 +108,18 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f https://github.com/kubevirt/containerized-data-importer/releases/download/v1.53.0/cdi-cr.yaml
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait cdi.cdi.kubevirt.io cdi --for condition=Available --timeout -1s
 
-	docker pull rook/nfs:master
-	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) rook/nfs:master
-	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f test/e2e/config/rook-nfs/crds.yaml
-	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait crd nfsservers.nfs.rook.io --for condition=Established
-	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f test/e2e/config/rook-nfs/
+	docker pull itsthenetwork/nfs-server-alpine:12
+	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) itsthenetwork/nfs-server-alpine:12
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f test/e2e/config/nfs/nfs-server.yaml
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait -n nfs deployment nfs-server --for condition=Available --timeout -1s
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply \
+		-f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.13.4/deploy/v4.13.4/rbac-csi-nfs.yaml \
+		-f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.13.4/deploy/v4.13.4/csi-nfs-driverinfo.yaml \
+		-f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.13.4/deploy/v4.13.4/csi-nfs-controller.yaml \
+		-f https://raw.githubusercontent.com/kubernetes-csi/csi-driver-nfs/v4.13.4/deploy/v4.13.4/csi-nfs-node.yaml
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) rollout status -n kube-system deployment csi-nfs-controller --timeout 10m
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) rollout status -n kube-system daemonset csi-nfs-node --timeout 10m
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f test/e2e/config/nfs/storageclass.yaml
 
 	PATH=$(LOCALBIN):$(PATH) $(SKAFFOLD) render --offline=true --default-repo="" --digest-source=tag --images virt-controller:e2e,virt-daemon:e2e | KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) apply -f -
 	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait -n virtink-system deployment virt-controller --for condition=Available --timeout -1s

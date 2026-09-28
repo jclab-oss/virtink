@@ -51,7 +51,7 @@ spec:
   source:
     blank: {}
   pvc:
-    storageClassName: rook-nfs-share1
+    storageClassName: nfs-csi
     accessModes:
       - ReadWriteMany
     resources:
