@@ -121,6 +121,12 @@ func (r *VMReconciler) reconcile(ctx context.Context, vm *virtv1alpha1.VirtualMa
 	}
 
 	switch vm.Status.Phase {
+	case virtv1alpha1.VirtualMachineScheduling:
+		if vm.Status.NodeName == r.NodeName {
+			if err := r.reconcileImageRefs(vm, vmPod); err != nil {
+				return err
+			}
+		}
 	case virtv1alpha1.VirtualMachineScheduled:
 		if err := r.mountHotplugVolumes(ctx, vm, "", ""); err != nil {
 			return err

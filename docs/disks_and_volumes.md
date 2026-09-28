@@ -107,7 +107,8 @@ The image is mounted into the VM Pod as a read-only [image volume](https://kuber
 Cached disks are identified by, in order of preference:
 
 1. The digest in the image reference, e.g. `smartxworks/virtink-image-rootfs-ubuntu@sha256:...`. Pin images by digest to skip reading the image when the disk is cached.
-2. A hash of the image's filesystem, which is computed by reading the whole image each time a VM starts.
+2. The digest of the mounted image reported in the Pod status. This requires the `ImageVolumeWithDigest` feature gate (alpha since Kubernetes v1.35) to be enabled, and the container runtime to report the digests of image volumes, which neither containerd (as of v2.3) nor CRI-O supports yet.
+3. A hash of the image's filesystem, which is computed by reading the whole image each time a VM starts.
 
 Cached disks that are not used by any VM on the node are removed after 24 hours by `virt-daemon`, which can be changed with its `--rootfs-cache-ttl` flag. Note that the cache is not accounted for in the ephemeral storage of Pods.
 

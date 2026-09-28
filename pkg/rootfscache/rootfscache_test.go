@@ -27,6 +27,13 @@ func TestDigestFromReference(t *testing.T) {
 	assert.Equal(t, "", DigestFromReference("ubuntu@sha256:invalid"))
 }
 
+func TestDigestFromImageRef(t *testing.T) {
+	assert.Equal(t, testDigest, DigestFromImageRef(testDigest))
+	assert.Equal(t, testDigest, DigestFromImageRef("docker.io/library/ubuntu@"+testDigest))
+	assert.Equal(t, "", DigestFromImageRef(""))
+	assert.Equal(t, "", DigestFromImageRef("docker.io/library/ubuntu:jammy"))
+}
+
 func TestDigestKey(t *testing.T) {
 	key, err := DigestKey(testDigest, 4<<30)
 	assert.NoError(t, err)

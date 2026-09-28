@@ -63,6 +63,24 @@ func TreeKey(root string, size int64) (string, error) {
 	return fmt.Sprintf("%s-tree-%s-%d", keyVersion, strings.Replace(digest, ":", "-", 1), size), nil
 }
 
+// ImageRefFileName is the name of the file in an imageRootfs volume's emptyDir
+// where virt-daemon writes the image ref of the mounted image reported in the
+// Pod status, or nothing if it's not reported.
+const ImageRefFileName = ".virtink-image-ref"
+
+var imageRefDigestRegexp = regexp.MustCompile(`(?:^|@)(sha256:[a-f0-9]{64})$`)
+
+// DigestFromImageRef returns the digest in an image ref reported by the
+// kubelet, which is either a digested reference (e.g.
+// docker.io/library/ubuntu@sha256:...) or an image ID (sha256:...).
+func DigestFromImageRef(imageRef string) string {
+	m := imageRefDigestRegexp.FindStringSubmatch(imageRef)
+	if m == nil {
+		return ""
+	}
+	return m[1]
+}
+
 // DigestFromReference returns the digest an image reference is pinned to, or
 // "" if the reference is not pinned (e.g. it's a tag).
 func DigestFromReference(reference string) string {

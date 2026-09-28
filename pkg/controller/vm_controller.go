@@ -664,19 +664,24 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 			if vm.Spec.Instance.Kernel != nil && isRootDisk(vm, volume.Name) {
 				initPath = rootfscache.InitPathFromCmdline(vm.Spec.Instance.Kernel.Cmdline)
 			}
+			args := []string{
+				"--image-dir", imageVolumeMount.MountPath,
+				"--image", volume.ImageRootfs.Image,
+				"--size", strconv.FormatInt(volume.ImageRootfs.Size.Value(), 10),
+				"--init", initPath,
+				"--cache-dir", rootfscache.DefaultDir,
+				"--target", volumeMount.MountPath + "/rootfs.qcow2",
+			}
+			if rootfscache.DigestFromReference(volume.ImageRootfs.Image) == "" {
+				// virt-daemon writes the digest of the mounted image there.
+				args = append(args, "--image-ref-file", volumeMount.MountPath+"/"+rootfscache.ImageRefFileName)
+			}
 			vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
 				Name:      "init-volume-" + volume.Name,
 				Image:     r.PrerunnerImageName,
 				Resources: vm.Spec.Resources,
 				Command:   []string{"virt-init-disk", "image-rootfs"},
-				Args: []string{
-					"--image-dir", imageVolumeMount.MountPath,
-					"--image", volume.ImageRootfs.Image,
-					"--size", strconv.FormatInt(volume.ImageRootfs.Size.Value(), 10),
-					"--init", initPath,
-					"--cache-dir", rootfscache.DefaultDir,
-					"--target", volumeMount.MountPath + "/rootfs.qcow2",
-				},
+				Args:      args,
 				VolumeMounts: []corev1.VolumeMount{imageVolumeMount, volumeMount, {
 					Name:      "virtink-rootfs-cache",
 					MountPath: rootfscache.DefaultDir,

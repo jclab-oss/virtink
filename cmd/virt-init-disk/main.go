@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/smartxworks/virtink/pkg/containerdisk"
 	"github.com/smartxworks/virtink/pkg/rootfscache"
@@ -38,6 +40,8 @@ func main() {
 		size := fs.Int64("size", 0, "Size of the rootfs disk in bytes")
 		initPath := fs.String("init", "", "Path of init in the image to check for, if the rootfs is booted from")
 		cacheDir := fs.String("cache-dir", rootfscache.DefaultDir, "Directory of the rootfs cache")
+		imageRefFile := fs.String("image-ref-file", "", "File to wait for the image ref of the mounted image in, if the image reference is not pinned by digest")
+		imageRefTimeout := fs.Duration("image-ref-timeout", time.Minute, "How long to wait for the image ref file")
 		target := fs.String("target", "", "Path of the qcow2 disk to create")
 		fs.Parse(os.Args[2:])
 		if *imageDir == "" || *image == "" || *size <= 0 || *target == "" {
@@ -51,7 +55,7 @@ func main() {
 			}
 		}
 
-		key, err := imageRootfsKey(*image, *imageDir, *size)
+		key, err := imageRootfsKey(*image, *imageRefFile, *imageRefTimeout, *imageDir, *size)
 		if err != nil {
 			log.Fatalf("Failed to get rootfs cache key: %s", err)
 		}
@@ -66,13 +70,44 @@ func main() {
 	}
 }
 
-// imageRootfsKey returns the rootfs cache key of the image, preferring the
-// image's digest over hashing its filesystem tree.
-func imageRootfsKey(image string, imageDir string, size int64) (string, error) {
+// imageRootfsKey returns the rootfs cache key of the image. It uses, in order
+// of preference, the digest the image reference is pinned to, the digest of
+// the mounted image reported by the kubelet, and a hash of the filesystem.
+func imageRootfsKey(image string, imageRefFile string, imageRefTimeout time.Duration, imageDir string, size int64) (string, error) {
 	if digest := rootfscache.DigestFromReference(image); digest != "" {
 		return rootfscache.DigestKey(digest, size)
 	}
+	if imageRefFile != "" {
+		imageRef, err := waitForImageRef(imageRefFile, imageRefTimeout)
+		if err != nil {
+			return "", err
+		}
+		if digest := rootfscache.DigestFromImageRef(imageRef); digest != "" {
+			return rootfscache.DigestKey(digest, size)
+		}
+		log.Printf("The digest of image %s is not reported by the kubelet, hashing its filesystem", image)
+	}
 	return rootfscache.TreeKey(imageDir, size)
+}
+
+// waitForImageRef waits for virt-daemon to write the image ref reported in the
+// Pod status to path. It returns "" if the file doesn't appear in time.
+func waitForImageRef(path string, timeout time.Duration) (string, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			return strings.TrimSpace(string(data)), nil
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		if time.Now().After(deadline) {
+			log.Printf("Timed out waiting for %s", path)
+			return "", nil
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
 }
 
 func usage() {

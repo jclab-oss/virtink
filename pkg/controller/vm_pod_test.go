@@ -95,7 +95,7 @@ func TestBuildVMPodWithImageRootfs(t *testing.T) {
 				Name: "data",
 				VolumeSource: virtv1alpha1.VolumeSource{
 					ImageRootfs: &virtv1alpha1.ImageRootfsVolumeSource{
-						Image: "data",
+						Image: "data@sha256:5291449c3df73caf6ed85e649dec1b9e818b39a5d8c871e97afc13e9cd5e8fa8",
 						Size:  resource.MustParse("1Gi"),
 					},
 				},
@@ -132,10 +132,13 @@ func TestBuildVMPodWithImageRootfs(t *testing.T) {
 		"--init", "/lib/systemd/systemd",
 		"--cache-dir", "/var/lib/virtink/rootfs-cache",
 		"--target", "/mnt/root/rootfs.qcow2",
+		"--image-ref-file", "/mnt/root/.virtink-image-ref",
 	}, initContainer.Args)
 	assert.Equal(t, &corev1.VolumeMount{Name: "virtink-image-root", MountPath: "/mnt/virtink-images/root", ReadOnly: true}, findVolumeMount(initContainer, "virtink-image-root"))
 	assert.Equal(t, &corev1.VolumeMount{Name: "virtink-rootfs-cache", MountPath: "/var/lib/virtink/rootfs-cache"}, findVolumeMount(initContainer, "virtink-rootfs-cache"))
 
-	// A disk that isn't booted from doesn't need an init.
+	// A disk that isn't booted from doesn't need an init, and the digest of an
+	// image pinned by digest is known already.
 	assert.Contains(t, strings.Join(pod.Spec.InitContainers[1].Args, " "), "--init  ")
+	assert.NotContains(t, pod.Spec.InitContainers[1].Args, "--image-ref-file")
 }
