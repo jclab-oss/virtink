@@ -144,7 +144,12 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 				}
 				switch {
 				case volume.ContainerDisk != nil:
-					diskConfig.Path = fmt.Sprintf("/mnt/%s/disk.raw", volume.Name)
+					diskConfig.Path = fmt.Sprintf("/mnt/%s/disk.qcow2", volume.Name)
+					diskConfig.ImageType = cloudhypervisor.ImageTypeQcow2
+					// The overlay is created by virt-init-disk and not writable by
+					// the guest, and its backing file has been checked to be
+					// self-contained.
+					diskConfig.BackingFiles = true
 				case volume.CloudInit != nil:
 					diskConfig.Path = fmt.Sprintf("/mnt/%s/cloud-init.iso", volume.Name)
 				case volume.ContainerRootfs != nil:

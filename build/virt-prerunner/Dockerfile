@@ -11,10 +11,11 @@ RUN go mod download
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 RUN --mount=type=cache,target=/root/.cache/go-build go build -a cmd/virt-prerunner/main.go
+RUN --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 go build -a -o virt-init-disk ./cmd/virt-init-disk
 
 FROM alpine:3.24.2
 
-RUN apk add --no-cache curl screen dnsmasq cdrkit iptables iproute2 qemu-virtiofsd dpkg util-linux s6-overlay nmap-ncat
+RUN apk add --no-cache curl screen dnsmasq cdrkit iptables iproute2 qemu-virtiofsd dpkg util-linux s6-overlay nmap-ncat qemu-img
 
 RUN set -eux; \
     mkdir /var/lib/cloud-hypervisor; \
@@ -52,3 +53,4 @@ COPY build/virt-prerunner/iptables-wrapper /sbin/iptables-wrapper
 RUN update-alternatives --install /sbin/iptables iptables /sbin/iptables-wrapper 100
 
 ADD build/virt-prerunner/virt-init-volume.sh /usr/bin/virt-init-volume
+COPY --from=builder /workspace/virt-init-disk /usr/bin/virt-init-disk

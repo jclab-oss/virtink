@@ -29,12 +29,12 @@ spec:
 
 It's possible to build and use your own kernel for direct kernel booting. To build a kernel that can work properly with Cloud Hypervisor, refer to the [Cloud Hypervisor documentation](https://github.com/cloud-hypervisor/cloud-hypervisor#building-your-kernel).
 
-After successfully built your kernel, you should have a `vmlinux` file ready to be injected into a container image. The `vmlinux` file must be placed at exactly the `/vmlinux` path and the image must be based on `smartxworks/virtink-kernel-base`.
+After successfully built your kernel, you should have a `vmlinux` file ready to be injected into a container image. The `vmlinux` file must be placed at exactly the `/vmlinux` path. The kernel image is mounted into the VM Pod as an [image volume](https://kubernetes.io/docs/concepts/storage/volumes/#image), so it needs nothing but the kernel.
 
 Below is an example of injecting a local kernel into a container image:
 
 ```dockerfile
-FROM smartxworks/virtink-kernel-base
+FROM scratch
 COPY vmlinux /vmlinux
 ```
 

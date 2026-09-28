@@ -360,6 +360,26 @@ func (r *VMReconciler) reconcile(ctx context.Context, vm *virtv1alpha1.VirtualMa
 	return nil
 }
 
+// addImageVolume adds an image volume of the given image to the VM Pod for
+// the VM volume volumeName, and returns how it should be mounted.
+func addImageVolume(vmPod *corev1.Pod, volumeName string, image string, pullPolicy corev1.PullPolicy) corev1.VolumeMount {
+	name := "virtink-image-" + volumeName
+	vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
+		Name: name,
+		VolumeSource: corev1.VolumeSource{
+			Image: &corev1.ImageVolumeSource{
+				Reference:  image,
+				PullPolicy: pullPolicy,
+			},
+		},
+	})
+	return corev1.VolumeMount{
+		Name:      name,
+		MountPath: "/mnt/virtink-images/" + volumeName,
+		ReadOnly:  true,
+	}
+}
+
 func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*corev1.Pod, error) {
 	vmPod := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -417,23 +437,17 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 		vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
 			Name: "virtink-kernel",
 			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
+				Image: &corev1.ImageVolumeSource{
+					Reference:  vm.Spec.Instance.Kernel.Image,
+					PullPolicy: vm.Spec.Instance.Kernel.ImagePullPolicy,
+				},
 			},
 		})
 
-		volumeMount := corev1.VolumeMount{
+		vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, corev1.VolumeMount{
 			Name:      "virtink-kernel",
 			MountPath: "/mnt/virtink-kernel",
-		}
-		vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, volumeMount)
-
-		vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
-			Name:            "init-kernel",
-			Image:           vm.Spec.Instance.Kernel.Image,
-			ImagePullPolicy: vm.Spec.Instance.Kernel.ImagePullPolicy,
-			Resources:       vm.Spec.Resources,
-			Args:            []string{volumeMount.MountPath + "/vmlinux"},
-			VolumeMounts:    []corev1.VolumeMount{volumeMount},
+			ReadOnly:  true,
 		})
 	}
 
@@ -457,6 +471,11 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 	for _, volume := range vm.Spec.Volumes {
 		switch {
 		case volume.ContainerDisk != nil:
+			// The disk in the image is the backing file of the VM's disk, so the
+			// image is mounted at the same path in the init and VM containers.
+			imageVolumeMount := addImageVolume(&vmPod, volume.Name, volume.ContainerDisk.Image, volume.ContainerDisk.ImagePullPolicy)
+			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, imageVolumeMount)
+
 			vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
 				Name: volume.Name,
 				VolumeSource: corev1.VolumeSource{
@@ -471,12 +490,12 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts, volumeMount)
 
 			vmPod.Spec.InitContainers = append(vmPod.Spec.InitContainers, corev1.Container{
-				Name:            "init-volume-" + volume.Name,
-				Image:           volume.ContainerDisk.Image,
-				ImagePullPolicy: volume.ContainerDisk.ImagePullPolicy,
-				Resources:       vm.Spec.Resources,
-				Args:            []string{volumeMount.MountPath + "/disk.raw"},
-				VolumeMounts:    []corev1.VolumeMount{volumeMount},
+				Name:         "init-volume-" + volume.Name,
+				Image:        r.PrerunnerImageName,
+				Resources:    vm.Spec.Resources,
+				Command:      []string{"virt-init-disk", "container-disk"},
+				Args:         []string{"--image-dir", imageVolumeMount.MountPath, "--target", volumeMount.MountPath + "/disk.qcow2"},
+				VolumeMounts: []corev1.VolumeMount{imageVolumeMount, volumeMount},
 			})
 		case volume.CloudInit != nil:
 			initContainer := corev1.Container{

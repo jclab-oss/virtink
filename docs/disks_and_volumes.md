@@ -30,14 +30,20 @@ The `containerDisk` feature provides the ability to store and distribute VM disk
 
 `containerDisk`s are not a good solution for any workload that requires persistent root disks across VM restarts.
 
+#### How a `containerDisk` Is Used
+
+The image is mounted into the VM Pod as a read-only [image volume](https://kubernetes.io/docs/concepts/storage/volumes/#image), so it's pulled and stored only once per node. Raw and QCOW2 disks are not copied: each VM gets a QCOW2 overlay in its Pod's `emptyDir` with the disk in the image as its backing file, and only the blocks written by the VM are stored in the overlay. Disks in other formats supported by `qemu-img` are converted into the VM's Pod when the VM starts.
+
+A disk referencing other files, such as a QCOW2 image with a backing file or an external data file, is rejected.
+
 #### `containerDisk` Workflow Example
 
-Disks must be placed at exactly the `/disk` path. Raw and QCOW2 formats are supported. QCOW2 is recommended in order to reduce the container image's size. `containerDisk`s must be based on `smartxworks/virtink-container-disk-base`.
+Disks must be placed at exactly the `/disk` path. Alternatively, `/disk` can be a directory containing exactly one disk file, which is the layout of KubeVirt's container disks. Raw and QCOW2 formats are recommended so that disks are shared rather than copied, and QCOW2 (optionally compressed) reduces the container image's size. The image needs nothing but the disk, and its entrypoint is never run.
 
 Below is an example of injecting a remote VM disk image into a container image:
 
 ```dockerfile
-FROM smartxworks/virtink-container-disk-base
+FROM scratch
 ADD https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img /disk
 ```
 
