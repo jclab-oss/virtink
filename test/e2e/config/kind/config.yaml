@@ -12,13 +12,13 @@ nodes:
     extraMounts:
       - hostPath: test/e2e/config/kind/containerd-service.conf
         containerPath: /etc/systemd/system/containerd.service.d/override.conf
-      - hostPath: test/e2e/.images
+      - hostPath: test/.e2e-images
         containerPath: /e2e-images
         readOnly: true
   - role: worker
     extraMounts:
       - hostPath: test/e2e/config/kind/containerd-service.conf
         containerPath: /etc/systemd/system/containerd.service.d/override.conf
-      - hostPath: test/e2e/.images
+      - hostPath: test/.e2e-images
         containerPath: /e2e-images
         readOnly: true

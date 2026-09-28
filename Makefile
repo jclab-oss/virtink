@@ -61,15 +61,15 @@ $(KUTTL): $(LOCALBIN)
 # VM disk images served to CDI in e2e tests. They are downloaded rather than
 # kept in git, and verified against test/e2e/images.sha256, which is also the
 # key of their cache in the e2e workflow.
-E2E_IMAGES_DIR := test/e2e/.images
+E2E_IMAGES_DIR := test/.e2e-images
 E2E_UBUNTU_IMAGE_URL := https://cloud-images.ubuntu.com/releases/jammy/release-20260913/ubuntu-22.04-server-cloudimg-amd64.img
 
 .PHONY: e2e-images
 e2e-images:
 	mkdir -p $(E2E_IMAGES_DIR)
-	cd $(E2E_IMAGES_DIR) && sha256sum --quiet -c ../images.sha256 >/dev/null 2>&1 || { \
+	cd $(E2E_IMAGES_DIR) && sha256sum --quiet -c ../e2e/images.sha256 >/dev/null 2>&1 || { \
 		curl -fsSLo ubuntu-22.04-server-cloudimg-amd64.img $(E2E_UBUNTU_IMAGE_URL) && \
-		sha256sum --quiet -c ../images.sha256; }
+		sha256sum --quiet -c ../e2e/images.sha256; }
 
 E2E_KIND_CLUSTER_NAME := virtink-e2e-$(shell date "+%Y-%m-%d-%H-%M-%S")
 E2E_KIND_CLUSTER_KUBECONFIG := /tmp/$(E2E_KIND_CLUSTER_NAME).kubeconfig

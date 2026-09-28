@@ -18,4 +18,4 @@ bin/
 # vendor/
 
 # VM disk images downloaded for e2e tests
-/test/e2e/.images/
+/test/.e2e-images/
