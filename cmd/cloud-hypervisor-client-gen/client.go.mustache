@@ -69,10 +69,23 @@ func (c *Client) {{name}}(ctx context.Context{{#arg}}, arg {{arg}}{{/arg}}) {{#r
 
 {{#types}}
 {{#desc}}// {{desc}}{{/desc}}
+{{#isString}}
+type {{name}} string
+
+{{#hasEnums}}
+const (
+{{#enums}}
+    {{name}} {{type}} = "{{value}}"
+{{/enums}}
+)
+{{/hasEnums}}
+{{/isString}}
+{{^isString}}
 type {{name}} struct {
 {{#fields}}
     {{name}} {{type}} `json:"{{key}}{{^required}},omitempty{{/required}}"`
 {{/fields}}
 }
+{{/isString}}
 
 {{/types}}

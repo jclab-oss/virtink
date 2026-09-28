@@ -122,6 +122,37 @@ func (c *Client) VmAddFs(ctx context.Context, arg *FsConfig) (*PciDeviceInfo, er
 	return ret, nil
 }
 
+// Add a new generic vhost-user device to the VM
+func (c *Client) VmAddGenericVhostUser(ctx context.Context, arg *GenericVhostUserConfig) (*PciDeviceInfo, error) {
+	reqBody, err := json.Marshal(arg)
+	if err != nil {
+		return nil, fmt.Errorf("encode request: %s", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", "http://localhost/api/v1/vm.add-generic-vhost-user", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("build request: %s", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("do request: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("request failed: %d %s: %s", resp.StatusCode, http.StatusText(resp.StatusCode), string(body))
+	}
+
+	var ret *PciDeviceInfo
+	if err := json.NewDecoder(resp.Body).Decode(&ret); err != nil {
+		return nil, fmt.Errorf("decode response: %s", err)
+	}
+
+	return ret, nil
+}
+
 // Add a new network device to the VM
 func (c *Client) VmAddNet(ctx context.Context, arg *NetConfig) (*PciDeviceInfo, error) {
 	reqBody, err := json.Marshal(arg)
@@ -427,6 +458,28 @@ func (c *Client) VmInfo(ctx context.Context) (*VmInfo, error) {
 	return ret, nil
 }
 
+// Inject an NMI.
+func (c *Client) VmNmi(ctx context.Context) error {
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", "http://localhost/api/v1/vm.nmi", nil)
+	if err != nil {
+		return fmt.Errorf("build request: %s", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("do request: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("request failed: %d %s: %s", resp.StatusCode, http.StatusText(resp.StatusCode), string(body))
+	}
+
+	return nil
+}
+
 // Pause a previously booted VM instance.
 func (c *Client) VmPause(ctx context.Context) error {
 
@@ -553,6 +606,32 @@ func (c *Client) VmResize(ctx context.Context, arg *VmResize) error {
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", "http://localhost/api/v1/vm.resize", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return fmt.Errorf("build request: %s", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("do request: %s", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("request failed: %d %s: %s", resp.StatusCode, http.StatusText(resp.StatusCode), string(body))
+	}
+
+	return nil
+}
+
+// Resize a disk
+func (c *Client) VmResizeDisk(ctx context.Context, arg *VmResizeDisk) error {
+	reqBody, err := json.Marshal(arg)
+	if err != nil {
+		return fmt.Errorf("encode request: %s", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", "http://localhost/api/v1/vm.resize-disk", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return fmt.Errorf("build request: %s", err)
 	}
@@ -719,28 +798,6 @@ func (c *Client) VmSnapshot(ctx context.Context, arg *VmSnapshotConfig) error {
 	return nil
 }
 
-// Inject an NMI.
-func (c *Client) VmmNmi(ctx context.Context) error {
-
-	req, err := http.NewRequestWithContext(ctx, "PUT", "http://localhost/api/v1/vmm.nmi", nil)
-	if err != nil {
-		return fmt.Errorf("build request: %s", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("do request: %s", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("request failed: %d %s: %s", resp.StatusCode, http.StatusText(resp.StatusCode), string(body))
-	}
-
-	return nil
-}
-
 // Ping the VMM to check for API server availability
 func (c *Client) VmmPing(ctx context.Context) (*VmmPingResponse, error) {
 
@@ -791,17 +848,43 @@ func (c *Client) VmmShutdown(ctx context.Context) error {
 }
 
 type BalloonConfig struct {
-	DeflateOnOom      bool  `json:"deflate_on_oom,omitempty"`
-	FreePageReporting bool  `json:"free_page_reporting,omitempty"`
-	Size              int64 `json:"size"`
+	DeflateOnOom      bool   `json:"deflate_on_oom,omitempty"`
+	FreePageReporting bool   `json:"free_page_reporting,omitempty"`
+	Id                string `json:"id,omitempty"`
+	Iommu             bool   `json:"iommu,omitempty"`
+	PciDeviceId       int    `json:"pci_device_id,omitempty"`
+	PciSegment        int16  `json:"pci_segment,omitempty"`
+	Size              int64  `json:"size"`
 }
 
 type ConsoleConfig struct {
-	File   string `json:"file,omitempty"`
-	Iommu  bool   `json:"iommu,omitempty"`
-	Mode   string `json:"mode"`
-	Socket string `json:"socket,omitempty"`
+	File        string      `json:"file,omitempty"`
+	Id          string      `json:"id,omitempty"`
+	Iommu       bool        `json:"iommu,omitempty"`
+	Mode        ConsoleMode `json:"mode"`
+	PciDeviceId int         `json:"pci_device_id,omitempty"`
+	PciSegment  int16       `json:"pci_segment,omitempty"`
+	Socket      string      `json:"socket,omitempty"`
 }
+
+type ConsoleMode string
+
+const (
+	ConsoleModeOff    ConsoleMode = "Off"
+	ConsoleModePty    ConsoleMode = "Pty"
+	ConsoleModeTty    ConsoleMode = "Tty"
+	ConsoleModeFile   ConsoleMode = "File"
+	ConsoleModeSocket ConsoleMode = "Socket"
+	ConsoleModeNull   ConsoleMode = "Null"
+)
+
+type CoreSchedulingMode string
+
+const (
+	CoreSchedulingModeVm   CoreSchedulingMode = "Vm"
+	CoreSchedulingModeVcpu CoreSchedulingMode = "Vcpu"
+	CoreSchedulingModeOff  CoreSchedulingMode = "Off"
+)
 
 type CpuAffinity struct {
 	HostCpus []int `json:"host_cpus"`
@@ -820,27 +903,31 @@ type CpuTopology struct {
 }
 
 type CpusConfig struct {
-	Affinity    []*CpuAffinity `json:"affinity,omitempty"`
-	BootVcpus   int            `json:"boot_vcpus"`
-	Features    *CpuFeatures   `json:"features,omitempty"`
-	KvmHyperv   bool           `json:"kvm_hyperv,omitempty"`
-	MaxPhysBits int            `json:"max_phys_bits,omitempty"`
-	MaxVcpus    int            `json:"max_vcpus"`
-	Topology    *CpuTopology   `json:"topology,omitempty"`
+	Affinity       []*CpuAffinity     `json:"affinity,omitempty"`
+	BootVcpus      int                `json:"boot_vcpus"`
+	CoreScheduling CoreSchedulingMode `json:"core_scheduling,omitempty"`
+	Features       *CpuFeatures       `json:"features,omitempty"`
+	KvmHyperv      bool               `json:"kvm_hyperv,omitempty"`
+	MaxPhysBits    int                `json:"max_phys_bits,omitempty"`
+	MaxVcpus       int                `json:"max_vcpus"`
+	Nested         bool               `json:"nested,omitempty"`
+	Topology       *CpuTopology       `json:"topology,omitempty"`
 }
 
 type DebugConsoleConfig struct {
-	File   string `json:"file,omitempty"`
-	Iobase int    `json:"iobase,omitempty"`
-	Mode   string `json:"mode"`
+	File   string      `json:"file,omitempty"`
+	Iobase int         `json:"iobase,omitempty"`
+	Mode   ConsoleMode `json:"mode"`
 }
 
 type DeviceConfig struct {
-	Id                 string `json:"id,omitempty"`
-	Iommu              bool   `json:"iommu,omitempty"`
-	Path               string `json:"path"`
-	PciSegment         int16  `json:"pci_segment,omitempty"`
-	XNvGpudirectClique int    `json:"x_nv_gpudirect_clique,omitempty"`
+	Id                 string  `json:"id,omitempty"`
+	Iommu              bool    `json:"iommu,omitempty"`
+	Path               string  `json:"path,omitempty"`
+	PciDeviceId        int     `json:"pci_device_id,omitempty"`
+	PciSegment         int16   `json:"pci_segment,omitempty"`
+	XExcludeMmapBars   []int64 `json:"x_exclude_mmap_bars,omitempty"`
+	XNvGpudirectClique int     `json:"x_nv_gpudirect_clique,omitempty"`
 }
 
 type DeviceNode struct {
@@ -851,11 +938,15 @@ type DeviceNode struct {
 }
 
 type DiskConfig struct {
+	BackingFiles      bool                 `json:"backing_files,omitempty"`
 	Direct            bool                 `json:"direct,omitempty"`
 	Id                string               `json:"id,omitempty"`
+	ImageType         ImageType            `json:"image_type,omitempty"`
 	Iommu             bool                 `json:"iommu,omitempty"`
+	LockGranularity   LockGranularity      `json:"lock_granularity,omitempty"`
 	NumQueues         int                  `json:"num_queues,omitempty"`
-	Path              string               `json:"path"`
+	Path              string               `json:"path,omitempty"`
+	PciDeviceId       int                  `json:"pci_device_id,omitempty"`
 	PciSegment        int16                `json:"pci_segment,omitempty"`
 	QueueAffinity     []*VirtQueueAffinity `json:"queue_affinity,omitempty"`
 	QueueSize         int                  `json:"queue_size,omitempty"`
@@ -863,23 +954,50 @@ type DiskConfig struct {
 	RateLimiterConfig *RateLimiterConfig   `json:"rate_limiter_config,omitempty"`
 	Readonly          bool                 `json:"readonly,omitempty"`
 	Serial            string               `json:"serial,omitempty"`
+	Sparse            bool                 `json:"sparse,omitempty"`
 	VhostSocket       string               `json:"vhost_socket,omitempty"`
 	VhostUser         bool                 `json:"vhost_user,omitempty"`
 }
 
 type FsConfig struct {
-	Id         string `json:"id,omitempty"`
-	NumQueues  int    `json:"num_queues"`
-	PciSegment int16  `json:"pci_segment,omitempty"`
-	QueueSize  int    `json:"queue_size"`
-	Socket     string `json:"socket"`
-	Tag        string `json:"tag"`
+	Id          string `json:"id,omitempty"`
+	NumQueues   int    `json:"num_queues"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
+	QueueSize   int    `json:"queue_size"`
+	Socket      string `json:"socket"`
+	Tag         string `json:"tag"`
 }
+
+type GenericVhostUserConfig struct {
+	DeviceType  int    `json:"device_type"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
+	QueueSizes  []int  `json:"queue_sizes"`
+	Socket      string `json:"socket"`
+}
+
+type ImageType string
+
+const (
+	ImageTypeFixedVhd ImageType = "FixedVhd"
+	ImageTypeQcow2    ImageType = "Qcow2"
+	ImageTypeRaw      ImageType = "Raw"
+	ImageTypeVhdx     ImageType = "Vhdx"
+	ImageTypeUnknown  ImageType = "Unknown"
+)
 
 type LandlockConfig struct {
 	Access string `json:"access"`
 	Path   string `json:"path"`
 }
+
+type LockGranularity string
+
+const (
+	LockGranularityByteRange LockGranularity = "ByteRange"
+	LockGranularityFull      LockGranularity = "Full"
+)
 
 type MemoryConfig struct {
 	HotplugMethod  string              `json:"hotplug_method,omitempty"`
@@ -889,11 +1007,19 @@ type MemoryConfig struct {
 	Hugepages      bool                `json:"hugepages,omitempty"`
 	Mergeable      bool                `json:"mergeable,omitempty"`
 	Prefault       bool                `json:"prefault,omitempty"`
+	Reserve        bool                `json:"reserve,omitempty"`
 	Shared         bool                `json:"shared,omitempty"`
 	Size           int64               `json:"size"`
 	Thp            bool                `json:"thp,omitempty"`
 	Zones          []*MemoryZoneConfig `json:"zones,omitempty"`
 }
+
+type MemoryRestoreMode string
+
+const (
+	MemoryRestoreModeCopy     MemoryRestoreMode = "Copy"
+	MemoryRestoreModeOnDemand MemoryRestoreMode = "OnDemand"
+)
 
 type MemoryZoneConfig struct {
 	File           string `json:"file,omitempty"`
@@ -905,9 +1031,18 @@ type MemoryZoneConfig struct {
 	Id             string `json:"id"`
 	Mergeable      bool   `json:"mergeable,omitempty"`
 	Prefault       bool   `json:"prefault,omitempty"`
+	Reserve        bool   `json:"reserve,omitempty"`
 	Shared         bool   `json:"shared,omitempty"`
 	Size           int64  `json:"size"`
 }
+
+// Memory transfer mode. Precopy transfers all guest memory before the destination resumes. Postcopy resumes the destination first and faults guest pages in on demand.
+type MigrationMode string
+
+const (
+	MigrationModePrecopy  MigrationMode = "Precopy"
+	MigrationModePostcopy MigrationMode = "Postcopy"
+)
 
 type NetConfig struct {
 	HostMac           string             `json:"host_mac,omitempty"`
@@ -918,6 +1053,10 @@ type NetConfig struct {
 	Mask              string             `json:"mask,omitempty"`
 	Mtu               int                `json:"mtu,omitempty"`
 	NumQueues         int                `json:"num_queues,omitempty"`
+	OffloadCsum       bool               `json:"offload_csum,omitempty"`
+	OffloadTso        bool               `json:"offload_tso,omitempty"`
+	OffloadUfo        bool               `json:"offload_ufo,omitempty"`
+	PciDeviceId       int                `json:"pci_device_id,omitempty"`
 	PciSegment        int16              `json:"pci_segment,omitempty"`
 	QueueSize         int                `json:"queue_size,omitempty"`
 	RateLimiterConfig *RateLimiterConfig `json:"rate_limiter_config,omitempty"`
@@ -928,12 +1067,12 @@ type NetConfig struct {
 }
 
 type NumaConfig struct {
-	Cpus           []int           `json:"cpus,omitempty"`
-	Distances      []*NumaDistance `json:"distances,omitempty"`
-	GuestNumaId    int             `json:"guest_numa_id"`
-	MemoryZones    []string        `json:"memory_zones,omitempty"`
-	PciSegments    []int           `json:"pci_segments,omitempty"`
-	SgxEpcSections []string        `json:"sgx_epc_sections,omitempty"`
+	Cpus        []int           `json:"cpus,omitempty"`
+	DeviceId    string          `json:"device_id,omitempty"`
+	Distances   []*NumaDistance `json:"distances,omitempty"`
+	GuestNumaId int             `json:"guest_numa_id"`
+	MemoryZones []string        `json:"memory_zones,omitempty"`
+	PciSegments []int           `json:"pci_segments,omitempty"`
 }
 
 type NumaDistance struct {
@@ -942,14 +1081,18 @@ type NumaDistance struct {
 }
 
 // Payloads to boot in guest
+
 type PayloadConfig struct {
 	Cmdline   string `json:"cmdline,omitempty"`
 	Firmware  string `json:"firmware,omitempty"`
+	HostData  string `json:"host_data,omitempty"`
+	Igvm      string `json:"igvm,omitempty"`
 	Initramfs string `json:"initramfs,omitempty"`
 	Kernel    string `json:"kernel,omitempty"`
 }
 
 // Information about a PCI device
+
 type PciDeviceInfo struct {
 	Bdf string `json:"bdf"`
 	Id  string `json:"id"`
@@ -962,12 +1105,24 @@ type PciSegmentConfig struct {
 }
 
 type PlatformConfig struct {
-	IommuSegments  []int16  `json:"iommu_segments,omitempty"`
-	NumPciSegments int16    `json:"num_pci_segments,omitempty"`
-	OemStrings     []string `json:"oem_strings,omitempty"`
-	SerialNumber   string   `json:"serial_number,omitempty"`
-	Tdx            bool     `json:"tdx,omitempty"`
-	Uuid           string   `json:"uuid,omitempty"`
+	ChassisAssetTag       string   `json:"chassis_asset_tag,omitempty"`
+	IommuAddressWidthBits int      `json:"iommu_address_width_bits,omitempty"`
+	IommuSegments         []int16  `json:"iommu_segments,omitempty"`
+	Iommufd               bool     `json:"iommufd,omitempty"`
+	NumPciSegments        int16    `json:"num_pci_segments,omitempty"`
+	OemStrings            []string `json:"oem_strings,omitempty"`
+	SerialNumber          string   `json:"serial_number,omitempty"`
+	SevSnp                bool     `json:"sev_snp,omitempty"`
+	SystemFamily          string   `json:"system_family,omitempty"`
+	SystemManufacturer    string   `json:"system_manufacturer,omitempty"`
+	SystemProductName     string   `json:"system_product_name,omitempty"`
+	SystemSerialNumber    string   `json:"system_serial_number,omitempty"`
+	SystemSkuNumber       string   `json:"system_sku_number,omitempty"`
+	SystemUuid            string   `json:"system_uuid,omitempty"`
+	SystemVersion         string   `json:"system_version,omitempty"`
+	Tdx                   bool     `json:"tdx,omitempty"`
+	Uuid                  string   `json:"uuid,omitempty"`
+	VfioP2PDma            bool     `json:"vfio_p2p_dma,omitempty"`
 }
 
 type PmemConfig struct {
@@ -975,6 +1130,7 @@ type PmemConfig struct {
 	File          string `json:"file"`
 	Id            string `json:"id,omitempty"`
 	Iommu         bool   `json:"iommu,omitempty"`
+	PciDeviceId   int    `json:"pci_device_id,omitempty"`
 	PciSegment    int16  `json:"pci_segment,omitempty"`
 	Size          int64  `json:"size,omitempty"`
 }
@@ -985,37 +1141,67 @@ type RateLimitGroupConfig struct {
 }
 
 // Defines an IO rate limiter with independent bytes/s and ops/s limits. Limits are defined by configuring each of the _bandwidth_ and _ops_ token buckets.
+
 type RateLimiterConfig struct {
 	Bandwidth *TokenBucket `json:"bandwidth,omitempty"`
 	Ops       *TokenBucket `json:"ops,omitempty"`
 }
 
 type ReceiveMigrationData struct {
-	ReceiverUrl string `json:"receiver_url"`
+	MemoryMode  MigrationMode `json:"memory_mode,omitempty"`
+	ReceiverUrl string        `json:"receiver_url"`
+	TlsDir      string        `json:"tls_dir,omitempty"`
 }
 
 type RestoreConfig struct {
-	Prefault  bool   `json:"prefault,omitempty"`
-	SourceUrl string `json:"source_url"`
+	MemoryRestoreMode MemoryRestoreMode `json:"memory_restore_mode,omitempty"`
+	Prefault          bool              `json:"prefault,omitempty"`
+	Resume            bool              `json:"resume,omitempty"`
+	SourceUrl         string            `json:"source_url"`
 }
 
 type RngConfig struct {
-	Iommu bool   `json:"iommu,omitempty"`
-	Src   string `json:"src"`
+	Id          string `json:"id,omitempty"`
+	Iommu       bool   `json:"iommu,omitempty"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
+	Src         string `json:"src"`
+}
+
+type RtcConfig struct {
+	Id          string `json:"id,omitempty"`
+	Iommu       bool   `json:"iommu,omitempty"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
 }
 
 type SendMigrationData struct {
-	DestinationUrl string `json:"destination_url"`
-	Local          bool   `json:"local,omitempty"`
+	Connections     int64           `json:"connections,omitempty"`
+	DestinationUrl  string          `json:"destination_url"`
+	DowntimeMs      int64           `json:"downtime_ms,omitempty"`
+	Local           bool            `json:"local,omitempty"`
+	MemoryMode      MigrationMode   `json:"memory_mode,omitempty"`
+	TimeoutS        int64           `json:"timeout_s,omitempty"`
+	TimeoutStrategy TimeoutStrategy `json:"timeout_strategy,omitempty"`
+	TlsDir          string          `json:"tls_dir,omitempty"`
 }
 
-type SgxEpcConfig struct {
-	Id       string `json:"id"`
-	Prefault bool   `json:"prefault,omitempty"`
-	Size     int64  `json:"size"`
+type SerialConfig struct {
+	File   string      `json:"file,omitempty"`
+	Mode   ConsoleMode `json:"mode"`
+	Socket string      `json:"socket,omitempty"`
 }
+
+// The strategy to apply when the migration timeout is reached. Cancel will abort the migration and keep the VM running on the source. Ignore will proceed with the migration regardless of the downtime requirement.
+type TimeoutStrategy string
+
+const (
+	TimeoutStrategyCancel TimeoutStrategy = "Cancel"
+	TimeoutStrategyIgnore TimeoutStrategy = "Ignore"
+)
 
 // Defines a token bucket with a maximum capacity (_size_), an initial burst size (_one_time_burst_) and an interval for refilling purposes (_refill_time_). The refill-rate is derived from _size_ and _refill_time_, and it is the constant rate at which the tokens replenish. The refill process only starts happening after the initial burst budget is consumed. Consumption from the token bucket is unbounded in speed which allows for bursts bound in size by the amount of tokens available. Once the token bucket is empty, consumption speed is bound by the refill-rate.
+
 type TokenBucket struct {
 	OneTimeBurst int64 `json:"one_time_burst,omitempty"`
 	RefillTime   int64 `json:"refill_time"`
@@ -1026,12 +1212,20 @@ type TpmConfig struct {
 	Socket string `json:"socket"`
 }
 
+type UserDeviceConfig struct {
+	Id          string `json:"id,omitempty"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
+	Socket      string `json:"socket"`
+}
+
 type VdpaConfig struct {
-	Id         string `json:"id,omitempty"`
-	Iommu      bool   `json:"iommu,omitempty"`
-	NumQueues  int    `json:"num_queues"`
-	Path       string `json:"path"`
-	PciSegment int16  `json:"pci_segment,omitempty"`
+	Id          string `json:"id,omitempty"`
+	Iommu       bool   `json:"iommu,omitempty"`
+	NumQueues   int    `json:"num_queues"`
+	Path        string `json:"path"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
 }
 
 type VirtQueueAffinity struct {
@@ -1040,37 +1234,42 @@ type VirtQueueAffinity struct {
 }
 
 type VmAddUserDevice struct {
-	Socket string `json:"socket"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
+	Socket      string `json:"socket"`
 }
 
 // Virtual machine configuration
+
 type VmConfig struct {
-	Balloon         *BalloonConfig          `json:"balloon,omitempty"`
-	Console         *ConsoleConfig          `json:"console,omitempty"`
-	Cpus            *CpusConfig             `json:"cpus,omitempty"`
-	DebugConsole    *DebugConsoleConfig     `json:"debug_console,omitempty"`
-	Devices         []*DeviceConfig         `json:"devices,omitempty"`
-	Disks           []*DiskConfig           `json:"disks,omitempty"`
-	Fs              []*FsConfig             `json:"fs,omitempty"`
-	Iommu           bool                    `json:"iommu,omitempty"`
-	LandlockEnable  bool                    `json:"landlock_enable,omitempty"`
-	LandlockRules   []*LandlockConfig       `json:"landlock_rules,omitempty"`
-	Memory          *MemoryConfig           `json:"memory,omitempty"`
-	Net             []*NetConfig            `json:"net,omitempty"`
-	Numa            []*NumaConfig           `json:"numa,omitempty"`
-	Payload         *PayloadConfig          `json:"payload"`
-	PciSegments     []*PciSegmentConfig     `json:"pci_segments,omitempty"`
-	Platform        *PlatformConfig         `json:"platform,omitempty"`
-	Pmem            []*PmemConfig           `json:"pmem,omitempty"`
-	Pvpanic         bool                    `json:"pvpanic,omitempty"`
-	RateLimitGroups []*RateLimitGroupConfig `json:"rate_limit_groups,omitempty"`
-	Rng             *RngConfig              `json:"rng,omitempty"`
-	Serial          *ConsoleConfig          `json:"serial,omitempty"`
-	SgxEpc          []*SgxEpcConfig         `json:"sgx_epc,omitempty"`
-	Tpm             *TpmConfig              `json:"tpm,omitempty"`
-	Vdpa            []*VdpaConfig           `json:"vdpa,omitempty"`
-	Vsock           *VsockConfig            `json:"vsock,omitempty"`
-	Watchdog        bool                    `json:"watchdog,omitempty"`
+	Balloon          *BalloonConfig            `json:"balloon,omitempty"`
+	Console          *ConsoleConfig            `json:"console,omitempty"`
+	Cpus             *CpusConfig               `json:"cpus,omitempty"`
+	DebugConsole     *DebugConsoleConfig       `json:"debug_console,omitempty"`
+	Devices          []*DeviceConfig           `json:"devices,omitempty"`
+	Disks            []*DiskConfig             `json:"disks,omitempty"`
+	Fs               []*FsConfig               `json:"fs,omitempty"`
+	GenericVhostUser []*GenericVhostUserConfig `json:"generic-vhost-user,omitempty"`
+	Iommu            bool                      `json:"iommu,omitempty"`
+	LandlockEnable   bool                      `json:"landlock_enable,omitempty"`
+	LandlockRules    []*LandlockConfig         `json:"landlock_rules,omitempty"`
+	Memory           *MemoryConfig             `json:"memory,omitempty"`
+	Net              []*NetConfig              `json:"net,omitempty"`
+	Numa             []*NumaConfig             `json:"numa,omitempty"`
+	Payload          *PayloadConfig            `json:"payload"`
+	PciSegments      []*PciSegmentConfig       `json:"pci_segments,omitempty"`
+	Platform         *PlatformConfig           `json:"platform,omitempty"`
+	Pmem             []*PmemConfig             `json:"pmem,omitempty"`
+	Pvpanic          bool                      `json:"pvpanic,omitempty"`
+	RateLimitGroups  []*RateLimitGroupConfig   `json:"rate_limit_groups,omitempty"`
+	Rng              *RngConfig                `json:"rng,omitempty"`
+	Rtc              *RtcConfig                `json:"rtc,omitempty"`
+	Serial           *SerialConfig             `json:"serial,omitempty"`
+	Tpm              *TpmConfig                `json:"tpm,omitempty"`
+	UserDevices      []*UserDeviceConfig       `json:"user_devices,omitempty"`
+	Vdpa             []*VdpaConfig             `json:"vdpa,omitempty"`
+	Vsock            *VsockConfig              `json:"vsock,omitempty"`
+	Watchdog         bool                      `json:"watchdog,omitempty"`
 }
 
 type VmCoredumpData struct {
@@ -1081,11 +1280,12 @@ type VmCounters struct {
 }
 
 // Virtual Machine information
+
 type VmInfo struct {
 	Config           *VmConfig              `json:"config"`
 	DeviceTree       map[string]*DeviceNode `json:"device_tree,omitempty"`
 	MemoryActualSize int64                  `json:"memory_actual_size,omitempty"`
-	State            string                 `json:"state"`
+	State            VmState                `json:"state"`
 }
 
 type VmRemoveDevice struct {
@@ -1098,6 +1298,11 @@ type VmResize struct {
 	DesiredVcpus   int   `json:"desired_vcpus,omitempty"`
 }
 
+type VmResizeDisk struct {
+	DesiredSize int64  `json:"desired_size,omitempty"`
+	Id          string `json:"id,omitempty"`
+}
+
 type VmResizeZone struct {
 	DesiredRam int64  `json:"desired_ram,omitempty"`
 	Id         string `json:"id,omitempty"`
@@ -1107,7 +1312,17 @@ type VmSnapshotConfig struct {
 	DestinationUrl string `json:"destination_url,omitempty"`
 }
 
+type VmState string
+
+const (
+	VmStateCreated  VmState = "Created"
+	VmStateRunning  VmState = "Running"
+	VmStateShutdown VmState = "Shutdown"
+	VmStatePaused   VmState = "Paused"
+)
+
 // Virtual Machine Monitor information
+
 type VmmPingResponse struct {
 	BuildVersion string   `json:"build_version,omitempty"`
 	Features     []string `json:"features,omitempty"`
@@ -1116,9 +1331,10 @@ type VmmPingResponse struct {
 }
 
 type VsockConfig struct {
-	Cid        int64  `json:"cid"`
-	Id         string `json:"id,omitempty"`
-	Iommu      bool   `json:"iommu,omitempty"`
-	PciSegment int16  `json:"pci_segment,omitempty"`
-	Socket     string `json:"socket"`
+	Cid         int64  `json:"cid"`
+	Id          string `json:"id,omitempty"`
+	Iommu       bool   `json:"iommu,omitempty"`
+	PciDeviceId int    `json:"pci_device_id,omitempty"`
+	PciSegment  int16  `json:"pci_segment,omitempty"`
+	Socket      string `json:"socket"`
 }

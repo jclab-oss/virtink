@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -348,6 +349,14 @@ func (r *VMReconciler) reconcile(ctx context.Context, vm *virtv1alpha1.VirtualMa
 						return fmt.Errorf("start source relay: %s", err)
 					}
 
+					// vm.send-migration only dispatches the migration, so its outcome is
+					// observed from the events emitted after this point.
+					events, err := readCloudHypervisorEvents(getCloudHypervisorEventsFilePath(vm))
+					if err != nil {
+						return fmt.Errorf("read cloud-hypervisor events: %s", err)
+					}
+					migrationControlBlock.SendMigrationEventOffset = len(events)
+
 					sendMigrationErrChan := make(chan error, 1)
 					go func() {
 						if err := r.getCloudHypervisorClient(vm).VmSendMigration(ctx, &cloudhypervisor.SendMigrationData{
@@ -376,8 +385,17 @@ func (r *VMReconciler) reconcile(ctx context.Context, vm *virtv1alpha1.VirtualMa
 								vm.Status.Migration.Phase = virtv1alpha1.VirtualMachineMigrationFailed
 							}
 						default:
-							log.Info("VM is sending migration")
-							return nil
+							events, err := readCloudHypervisorEvents(getCloudHypervisorEventsFilePath(vm))
+							if err != nil {
+								return fmt.Errorf("read cloud-hypervisor events: %s", err)
+							}
+							if hasCloudHypervisorEvent(events[min(migrationControlBlock.SendMigrationEventOffset, len(events)):], "vm", "migration-failed") {
+								r.Recorder.Eventf(vm, corev1.EventTypeWarning, "FailedMigrate", "Failed to migrate VM to %s", vm.Status.Migration.TargetNodeName)
+								vm.Status.Migration.Phase = virtv1alpha1.VirtualMachineMigrationFailed
+							} else {
+								log.Info("VM is sending migration")
+								return nil
+							}
 						}
 					}
 					if sendDomainCancelFunc := migrationControlBlock.SendMigrationCancelFunc; sendDomainCancelFunc != nil {
@@ -433,6 +451,51 @@ func (r *VMReconciler) getCloudHypervisorClient(vm *virtv1alpha1.VirtualMachine)
 
 func getVMDataDirPath(vm *virtv1alpha1.VirtualMachine) string {
 	return filepath.Join("var/lib/kubelet/pods", string(vm.Status.VMPodUID), "volumes/kubernetes.io~empty-dir/virtink/")
+}
+
+func getCloudHypervisorEventsFilePath(vm *virtv1alpha1.VirtualMachine) string {
+	return filepath.Join(getVMDataDirPath(vm), "ch-events.json")
+}
+
+type cloudHypervisorEvent struct {
+	Source string `json:"source"`
+	Event  string `json:"event"`
+}
+
+// readCloudHypervisorEvents parses the file written by cloud-hypervisor's
+// --event-monitor, which is a stream of JSON objects separated by blank lines.
+func readCloudHypervisorEvents(path string) ([]cloudHypervisorEvent, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var events []cloudHypervisorEvent
+	decoder := json.NewDecoder(f)
+	for {
+		var event cloudHypervisorEvent
+		if err := decoder.Decode(&event); err != nil {
+			if err == io.EOF || err == io.ErrUnexpectedEOF {
+				// A trailing partial event is still being written.
+				return events, nil
+			}
+			return nil, err
+		}
+		events = append(events, event)
+	}
+}
+
+func hasCloudHypervisorEvent(events []cloudHypervisorEvent, source string, event string) bool {
+	for _, e := range events {
+		if e.Source == source && e.Event == event {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *VMReconciler) getMigrationTargetCloudHypervisorClient(vm *virtv1alpha1.VirtualMachine) *cloudhypervisor.Client {
@@ -733,7 +796,8 @@ func (r *VMReconciler) addHotplugVolumesToVM(ctx context.Context, vm *virtv1alph
 		case virtv1alpha1.VolumeMountedToPod:
 			if _, ok := vmDisksMap[volumeStatus.Name]; !ok {
 				diskConfig := &cloudhypervisor.DiskConfig{
-					Id: volumeStatus.Name,
+					Id:        volumeStatus.Name,
+					ImageType: cloudhypervisor.ImageTypeRaw,
 				}
 
 				isBlock, err := volumeutil.IsBlock(ctx, r.Client, vm.Namespace, volume)
@@ -927,6 +991,7 @@ type RelayProvider interface {
 
 type migrationControlBlock struct {
 	SendMigrationErrCh         <-chan error
+	SendMigrationEventOffset   int
 	SendMigrationCancelFunc    context.CancelFunc
 	ReceiveMigrationErrCh      <-chan error
 	ReceiveMigrationCancelFunc context.CancelFunc

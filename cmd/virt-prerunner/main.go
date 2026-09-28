@@ -70,10 +70,10 @@ func main() {
 func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloudhypervisor.VmConfig, error) {
 	vmConfig := cloudhypervisor.VmConfig{
 		Console: &cloudhypervisor.ConsoleConfig{
-			Mode: "Pty",
+			Mode: cloudhypervisor.ConsoleModePty,
 		},
-		Serial: &cloudhypervisor.ConsoleConfig{
-			Mode: "Tty",
+		Serial: &cloudhypervisor.SerialConfig{
+			Mode: cloudhypervisor.ConsoleModeTty,
 		},
 		Payload: &cloudhypervisor.PayloadConfig{
 			Kernel: "/var/lib/cloud-hypervisor/hypervisor-fw",
@@ -135,9 +135,12 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 	for _, disk := range vm.Spec.Instance.Disks {
 		for _, volume := range vm.Spec.Volumes {
 			if volume.Name == disk.Name {
+				// Image types are always set explicitly so that Cloud Hypervisor never
+				// autodetects the format of a guest-writable image.
 				diskConfig := cloudhypervisor.DiskConfig{
-					Id:     disk.Name,
-					Direct: true,
+					Id:        disk.Name,
+					Direct:    true,
+					ImageType: cloudhypervisor.ImageTypeRaw,
 				}
 				switch {
 				case volume.ContainerDisk != nil:
