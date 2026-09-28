@@ -857,7 +857,7 @@ func (r *VMReconciler) handleHotplugVolumes(ctx context.Context, vm *virtv1alpha
 		if err := r.Create(ctx, volumePod); err != nil {
 			return err
 		}
-		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "CreatedHotplugVolumePod", fmt.Sprintf("Created VM Hotplug Volume Pod %q", volumePod.Name))
+		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "CreatedHotplugVolumePod", "Created VM Hotplug Volume Pod %q", volumePod.Name)
 	}
 
 	for _, pod := range oldPods {
@@ -865,7 +865,7 @@ func (r *VMReconciler) handleHotplugVolumes(ctx context.Context, vm *virtv1alpha
 			if err := r.Client.Delete(ctx, pod); err != nil {
 				return err
 			}
-			r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedHotplugVolumePod", fmt.Sprintf("Deleted VM Hotplug Volume Pod %q", pod.Name))
+			r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedHotplugVolumePod", "Deleted VM Hotplug Volume Pod %q", pod.Name)
 		}
 	}
 	return nil
@@ -1212,7 +1212,7 @@ func (r *VMReconciler) gcVMPods(ctx context.Context, vm *virtv1alpha1.VirtualMac
 		if err := r.Delete(ctx, &vmPod); client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("delete VM Pod: %s", err)
 		}
-		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", fmt.Sprintf("Deleted VM Pod %q", vmPod.Name))
+		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", "Deleted VM Pod %q", vmPod.Name)
 	}
 	return nil
 }
@@ -1234,7 +1234,7 @@ func (r *VMReconciler) deleteAllVMPods(ctx context.Context, vm *virtv1alpha1.Vir
 		if err := r.Delete(ctx, &vmPod); client.IgnoreNotFound(err) != nil {
 			return false, fmt.Errorf("delete VM Pod: %s", err)
 		}
-		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", fmt.Sprintf("Deleted VM Pod %q", vmPod.Name))
+		r.Recorder.Eventf(vm, corev1.EventTypeNormal, "DeletedVMPod", "Deleted VM Pod %q", vmPod.Name)
 	}
 	return false, nil
 }

@@ -26,7 +26,7 @@ Virtink consists of 3 components:
 
 A few requirements need to be met before you can begin:
 
-- Kubernetes cluster v1.16 ~ v1.25
+- Kubernetes cluster v1.35+, with the `ImageVolume` feature enabled (the default since v1.35). Container disks, container rootfs images and kernels are mounted as [image volumes](https://kubernetes.io/docs/concepts/storage/volumes/#image).
 - Kubernetes apiserver must have `--allow-privileged=true` in order to run Virtink's privileged DaemonSet. It's usually set by default.
 - [cert-manager](https://cert-manager.io/) v1.0 ~ v1.8 installed in Kubernetes cluster. You can install it with `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.2/cert-manager.yaml`.
 
@@ -34,8 +34,9 @@ A few requirements need to be met before you can begin:
 
 Virtink currently supports the following container runtimes:
 
-- Docker
-- containerd
+- containerd v2.1+
+
+The container runtime must support image volumes.
 
 Other container runtimes, which do not use virtualization features, should work too. However, they are not tested officially.
 
