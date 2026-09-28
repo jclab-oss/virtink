@@ -69,6 +69,16 @@ type CPU struct {
 type Memory struct {
 	Size      resource.Quantity `json:"size,omitempty"`
 	Hugepages *Hugepages        `json:"hugepages,omitempty"`
+
+	// MinSize enables memory ballooning. It is the amount of memory the guest keeps
+	// when the balloon is fully inflated, and is also used as the VM Pod memory request.
+	MinSize *resource.Quantity `json:"minSize,omitempty"`
+	// MaxSize is the amount of memory the guest sees. Defaults to size.
+	MaxSize *resource.Quantity `json:"maxSize,omitempty"`
+}
+
+func (m *Memory) IsBallooningEnabled() bool {
+	return m.MinSize != nil
 }
 
 type Hugepages struct {
@@ -222,6 +232,12 @@ type VirtualMachineStatus struct {
 	Migration    *VirtualMachineStatusMigration `json:"migration,omitempty"`
 	Conditions   []metav1.Condition             `json:"conditions,omitempty"`
 	VolumeStatus []VolumeStatus                 `json:"volumeStatus,omitempty"`
+	Memory       *MemoryStatus                  `json:"memory,omitempty"`
+}
+
+type MemoryStatus struct {
+	// CurrentSize is the amount of memory available to the guest, i.e. maxSize minus the balloon size.
+	CurrentSize resource.Quantity `json:"currentSize"`
 }
 
 // +kubebuilder:validation:Enum=Pending;Scheduling;Scheduled;Running;Succeeded;Failed;Unknown

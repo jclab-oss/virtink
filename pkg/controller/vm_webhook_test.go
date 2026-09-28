@@ -636,3 +636,141 @@ func TestMutateVM(t *testing.T) {
 		tc.assert(tc.vm)
 	}
 }
+
+func TestMemoryBallooning(t *testing.T) {
+	quantity := func(s string) *resource.Quantity {
+		q := resource.MustParse(s)
+		return &q
+	}
+	newVM := func() *virtv1alpha1.VirtualMachine {
+		return &virtv1alpha1.VirtualMachine{
+			Spec: virtv1alpha1.VirtualMachineSpec{
+				Instance: virtv1alpha1.Instance{
+					Memory: virtv1alpha1.Memory{
+						Size:    resource.MustParse("4Gi"),
+						MinSize: quantity("1Gi"),
+					},
+				},
+			},
+		}
+	}
+
+	t.Run("mutate", func(t *testing.T) {
+		vm := newVM()
+		assert.NoError(t, MutateVM(context.Background(), vm, nil))
+		assert.Equal(t, "4Gi", vm.Spec.Instance.Memory.MaxSize.String())
+		assert.Equal(t, "1280Mi", vm.Spec.Resources.Requests.Memory().String())
+		assert.Equal(t, "4352Mi", vm.Spec.Resources.Limits.Memory().String())
+
+		vm = newVM()
+		vm.Spec.Instance.Memory.Size = resource.Quantity{}
+		vm.Spec.Instance.Memory.MaxSize = quantity("2Gi")
+		assert.NoError(t, MutateVM(context.Background(), vm, nil))
+		assert.Equal(t, "2Gi", vm.Spec.Instance.Memory.Size.String())
+
+		vm = newVM()
+		vm.Spec.Resources.Requests = corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("2Gi")}
+		assert.NoError(t, MutateVM(context.Background(), vm, nil))
+		assert.Equal(t, "2Gi", vm.Spec.Resources.Requests.Memory().String())
+
+		vm = newVM()
+		vm.Spec.Instance.Memory.MinSize = nil
+		assert.NoError(t, MutateVM(context.Background(), vm, nil))
+		assert.Nil(t, vm.Spec.Instance.Memory.MaxSize)
+		assert.True(t, vm.Spec.Resources.Requests.Memory().IsZero())
+	})
+
+	t.Run("validate", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			mutate        func(vm *virtv1alpha1.VirtualMachine)
+			invalidFields []string
+		}{{
+			name:   "valid",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {},
+		}, {
+			name: "minSize greater than maxSize",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {
+				vm.Spec.Instance.Memory.MinSize = quantity("8Gi")
+			},
+			invalidFields: []string{"spec.instance.memory.minSize"},
+		}, {
+			name: "zero minSize",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {
+				vm.Spec.Instance.Memory.MinSize = quantity("0")
+			},
+			invalidFields: []string{"spec.instance.memory.minSize"},
+		}, {
+			name: "maxSize differs from size",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {
+				vm.Spec.Instance.Memory.MaxSize = quantity("2Gi")
+			},
+			invalidFields: []string{"spec.instance.memory.maxSize"},
+		}, {
+			name: "hugepages",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {
+				vm.Spec.Instance.Memory.Hugepages = &virtv1alpha1.Hugepages{PageSize: "1Gi"}
+				vm.Spec.Resources.Requests["hugepages-1Gi"] = resource.MustParse("4Gi")
+				vm.Spec.Resources.Limits["hugepages-1Gi"] = resource.MustParse("4Gi")
+			},
+			invalidFields: []string{"spec.instance.memory.minSize"},
+		}, {
+			name: "dedicated CPU placement",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {
+				vm.Spec.Instance.CPU.DedicatedCPUPlacement = true
+				vm.Spec.Resources.Requests[corev1.ResourceCPU] = resource.MustParse("1")
+				vm.Spec.Resources.Limits[corev1.ResourceCPU] = resource.MustParse("1")
+				vm.Spec.Resources.Requests[corev1.ResourceMemory] = resource.MustParse("4352Mi")
+			},
+			invalidFields: []string{"spec.instance.memory.minSize"},
+		}, {
+			name: "SR-IOV and vDPA interfaces",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {
+				vm.Spec.Instance.Interfaces = []virtv1alpha1.Interface{{
+					Name:                   "sriov",
+					MAC:                    "52:54:00:dd:0d:5b",
+					InterfaceBindingMethod: virtv1alpha1.InterfaceBindingMethod{SRIOV: &virtv1alpha1.InterfaceSRIOV{}},
+				}, {
+					Name:                   "vdpa",
+					MAC:                    "52:54:00:dd:0d:5c",
+					InterfaceBindingMethod: virtv1alpha1.InterfaceBindingMethod{VDPA: &virtv1alpha1.InterfaceVDPA{}},
+				}}
+				vm.Spec.Networks = []virtv1alpha1.Network{{
+					Name:          "sriov",
+					NetworkSource: virtv1alpha1.NetworkSource{Multus: &virtv1alpha1.MultusNetworkSource{NetworkName: "sriov"}},
+				}, {
+					Name:          "vdpa",
+					NetworkSource: virtv1alpha1.NetworkSource{Multus: &virtv1alpha1.MultusNetworkSource{NetworkName: "vdpa"}},
+				}}
+			},
+			invalidFields: []string{"spec.instance.interfaces[0]", "spec.instance.interfaces[1]"},
+		}, {
+			name: "memory limit less than maxSize",
+			mutate: func(vm *virtv1alpha1.VirtualMachine) {
+				vm.Spec.Resources.Limits[corev1.ResourceMemory] = resource.MustParse("4Gi")
+			},
+			invalidFields: []string{"spec.resources.limits.memory"},
+		}}
+
+		for _, tc := range tests {
+			vm := newVM()
+			assert.NoError(t, MutateVM(context.Background(), vm, nil))
+			tc.mutate(vm)
+			var fields []string
+			for _, err := range ValidateVM(context.Background(), vm, nil) {
+				fields = append(fields, err.Field)
+			}
+			assert.ElementsMatch(t, tc.invalidFields, fields, tc.name)
+		}
+
+		oldVM := newVM()
+		assert.NoError(t, MutateVM(context.Background(), oldVM, nil))
+		vm := oldVM.DeepCopy()
+		vm.Spec.Instance.Memory.MinSize = quantity("2Gi")
+		var fields []string
+		for _, err := range ValidateVM(context.Background(), vm, oldVM) {
+			fields = append(fields, err.Field)
+		}
+		assert.Equal(t, []string{"spec"}, fields, "minSize is immutable")
+	})
+}

@@ -154,4 +154,12 @@ e2e: kind kubectl cmctl skaffold kuttl e2e-image e2e-images
 	$(KIND) load docker-image --name $(E2E_KIND_CLUSTER_NAME) smartxworks/virtink-container-rootfs-ubuntu
 	PATH=$(LOCALBIN):$(PATH) KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUTTL) test --config test/e2e/kuttl-test.yaml
 
+# kuttl does not wait for test namespaces to be deleted. Wait for them and their NFS volumes, and unmount NFS
+# volumes left on nodes while the in-cluster NFS server is still running, otherwise the kernel NFS client
+# hangs and the nodes can not be removed.
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) get namespace -o name | grep '^namespace/kuttl-test-' | xargs -r env KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait --for=delete --timeout 10m
+	KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) get pv -o name | xargs -r env KUBECONFIG=$(E2E_KIND_CLUSTER_KUBECONFIG) $(KUBECTL) wait --for=delete --timeout 10m
+	for node in $$($(KIND) get nodes --name $(E2E_KIND_CLUSTER_NAME)); do \
+		docker exec $$node sh -c "grep -E ' nfs4? ' /proc/mounts | cut -d' ' -f2 | xargs -r umount -l"; \
+	done
 	$(KIND) delete cluster --name $(E2E_KIND_CLUSTER_NAME)
