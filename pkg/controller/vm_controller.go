@@ -693,15 +693,15 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 				return nil, err
 			}
 			if !ready {
-				if volume.DataVolume != nil {
-					pvc, pvcErr := volumeutil.GetPVC(ctx, r.Client, vm.Namespace, volume)
-					if pvcErr != nil {
-						return nil, fmt.Errorf("failed to get PVC for DataVolume %s: %w", volume.Name, pvcErr)
-					}
-					if pvc != nil && pvc.Status.Phase != corev1.ClaimPending {
-						return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
-					}
-				} else {
+				// The VM Pod is the first consumer that lets such a DataVolume be
+				// populated. Any other unpopulated volume, including a PVC that is
+				// Pending only while it's provisioned, must not be used before it's
+				// populated.
+				waiting, err := volumeutil.IsWaitingForFirstConsumer(ctx, r.Client, vm.Namespace, volume)
+				if err != nil {
+					return nil, err
+				}
+				if !waiting {
 					return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
 				}
 			}

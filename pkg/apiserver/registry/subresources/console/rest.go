@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"k8s.io/apimachinery/pkg/runtime"
+	genericapirequest "k8s.io/apiserver/pkg/endpoints/request"
 	"k8s.io/apiserver/pkg/registry/rest"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,8 +50,7 @@ func (r *ConsoleREST) Connect(ctx context.Context, name string, opts runtime.Obj
 		return nil, fmt.Errorf("invalid options object: %T", opts)
 	}
 
-	// Extract namespace from context
-	namespace, ok := ctx.Value("namespace").(string)
+	namespace, ok := genericapirequest.NamespaceFrom(ctx)
 	if !ok {
 		return nil, fmt.Errorf("namespace not found in context")
 	}

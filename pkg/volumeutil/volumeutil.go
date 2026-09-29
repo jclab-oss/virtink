@@ -75,3 +75,24 @@ func GetPVC(ctx context.Context, c client.Client, namespace string, volume virtv
 	}
 	return &pvc, nil
 }
+
+// IsWaitingForFirstConsumer returns whether the volume is a DataVolume that CDI
+// populates only once a Pod using it is scheduled, as its PVC's StorageClass
+// binds volumes on the first consumer.
+func IsWaitingForFirstConsumer(ctx context.Context, c client.Client, namespace string, volume virtv1alpha1.Volume) (bool, error) {
+	if volume.DataVolume == nil {
+		return false, nil
+	}
+	var dv cdiv1beta1.DataVolume
+	dvKey := types.NamespacedName{
+		Name:      volume.DataVolume.VolumeName,
+		Namespace: namespace,
+	}
+	if err := c.Get(ctx, dvKey, &dv); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return dv.Status.Phase == cdiv1beta1.WaitForFirstConsumer, nil
+}

@@ -34,6 +34,7 @@ require (
 	k8s.io/apiserver v0.36.5
 	k8s.io/client-go v0.36.5
 	k8s.io/klog/v2 v2.140.0
+	k8s.io/kube-openapi v0.0.0-20260427204847-8949caaa1199
 	k8s.io/kubelet v0.36.5
 	k8s.io/utils v0.0.0-20260319190234-28399d86e0b5
 	kubevirt.io/containerized-data-importer-api v1.63.1
@@ -159,7 +160,6 @@ require (
 	k8s.io/component-base v0.36.5 // indirect
 	k8s.io/gengo/v2 v2.0.0-20250922181213-ec3ebc5fd46b // indirect
 	k8s.io/kms v0.36.5 // indirect
-	k8s.io/kube-openapi v0.0.0-20260427204847-8949caaa1199 // indirect
 	k8s.io/streaming v0.36.5 // indirect
 	kubevirt.io/controller-lifecycle-operator-sdk/api v0.2.4 // indirect
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.34.0 // indirect

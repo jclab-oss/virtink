@@ -7,10 +7,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	openapinamer "k8s.io/apiserver/pkg/endpoints/openapi"
 	genericapiserver "k8s.io/apiserver/pkg/server"
 	genericoptions "k8s.io/apiserver/pkg/server/options"
+	"k8s.io/apiserver/pkg/util/compatibility"
 
 	subresourcesv1alpha1 "github.com/smartxworks/virtink/pkg/apis/subresources/v1alpha1"
+	generatedopenapi "github.com/smartxworks/virtink/pkg/generated/openapi"
 )
 
 // ServerOptions contains configuration for the aggregated API server
@@ -25,8 +28,12 @@ func NewServerOptions() *ServerOptions {
 
 	// Default settings
 	secureServing.BindPort = 8443
-	secureServing.ServerCert.CertDirectory = "/var/run/virtink/serving-cert"
-	secureServing.ServerCert.PairName = "apiserver"
+	// The cert-manager Secret mounted there is read-only, so the files must be
+	// named as cert-manager does. With a CertDirectory instead, a missing
+	// <PairName>.crt is replaced by a self-signed cert written into it, which
+	// fails and stops virt-controller.
+	secureServing.ServerCert.CertKey.CertFile = "/var/run/virtink/serving-cert/tls.crt"
+	secureServing.ServerCert.CertKey.KeyFile = "/var/run/virtink/serving-cert/tls.key"
 
 	return &ServerOptions{
 		SecureServing: secureServing,
@@ -60,6 +67,10 @@ func (o *ServerOptions) Config() (*Config, error) {
 
 	// Use NewConfig directly (like metrics-server) instead of NewRecommendedConfig
 	serverConfig := genericapiserver.NewConfig(Codecs)
+	// Complete() dereferences it, and NewConfig() leaves it nil.
+	serverConfig.EffectiveVersion = compatibility.DefaultBuildEffectiveVersion()
+	// Installing API groups builds the models for server-side apply from it.
+	serverConfig.OpenAPIV3Config = genericapiserver.DefaultOpenAPIV3Config(generatedopenapi.GetOpenAPIDefinitions, openapinamer.NewDefinitionNamer(scheme))
 
 	// Set ExternalAddress with port to avoid nil pointer in Complete()
 	serverConfig.ExternalAddress = "localhost:8443"

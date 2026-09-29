@@ -109,6 +109,7 @@ func (s *SubresourcesAPIServer) installAPIGroups(extraConfig *ExtraConfig) error
 
 	// Register the storage
 	v1alpha1Storage := map[string]rest.Storage{}
+	v1alpha1Storage["virtualmachines"] = &console.VirtualMachineREST{}
 	v1alpha1Storage["virtualmachines/console"] = consoleStorage
 
 	apiGroupInfo.VersionedResourcesStorageMap["v1alpha1"] = v1alpha1Storage
