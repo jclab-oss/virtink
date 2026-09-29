@@ -97,6 +97,32 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 		vmConfig.Payload.Kernel = "/var/lib/cloud-hypervisor/CLOUDHV_EFI.fd"
 	}
 
+	if vm.Spec.Instance.Console != nil {
+		vmConfig.Console = &cloudhypervisor.ConsoleConfig{
+			Mode:   cloudhypervisor.ConsoleMode(vm.Spec.Instance.Console.Mode),
+			File:   vm.Spec.Instance.Console.File,
+			Socket: vm.Spec.Instance.Console.Socket,
+			Iommu:  vm.Spec.Instance.Console.IOMMU,
+		}
+	}
+	if vm.Spec.Instance.Serial != nil {
+		serialMode := vm.Spec.Instance.Serial.Mode
+		serialSocket := vm.Spec.Instance.Serial.Socket
+		if serialSocket == "" {
+			serialSocket = "/var/run/virtink/serial.sock"
+		}
+		if serialMode == "" {
+			serialMode = "Socket"
+		}
+		// Cloud Hypervisor doesn't support IOMMU for the serial port, so
+		// Serial.IOMMU is ignored.
+		vmConfig.Serial = &cloudhypervisor.SerialConfig{
+			Mode:   cloudhypervisor.ConsoleMode(serialMode),
+			File:   vm.Spec.Instance.Serial.File,
+			Socket: serialSocket,
+		}
+	}
+
 	if vm.Spec.Instance.Kernel != nil {
 		vmConfig.Payload.Kernel = "/mnt/virtink-kernel/vmlinux"
 		vmConfig.Payload.Cmdline = vm.Spec.Instance.Kernel.Cmdline
@@ -205,8 +231,11 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 			return nil, fmt.Errorf("create virtiofsd socket dir: %s", err)
 		}
 
+		// Check Virtink Volumes first
+		found := false
 		for _, volume := range vm.Spec.Volumes {
 			if volume.Name == fs.Name {
+				found = true
 				socketPath := fmt.Sprintf("/var/run/virtink/virtiofsd/%s.sock", volume.Name)
 				// File handles require CAP_DAC_READ_SEARCH, which the VM Pod does not have. virtiofsd 1.13.2 changed
 				// the default to "prefer" and then fails to apply its capabilities, so keep the previous default.
@@ -223,6 +252,27 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 				}
 				vmConfig.Fs = append(vmConfig.Fs, &fsConfig)
 				break
+			}
+		}
+
+		// If not found in Volumes, check if directory exists (SidecarVolume case)
+		// SidecarVolumes are mounted to /mnt/<name> by vm_controller when used with FileSystems
+		if !found {
+			sourcePath := "/mnt/" + fs.Name
+			if _, err := os.Stat(sourcePath); err == nil {
+				socketPath := fmt.Sprintf("/var/run/virtink/virtiofsd/%s.sock", fs.Name)
+				if err := exec.Command("/usr/lib/qemu/virtiofsd", "--socket-path="+socketPath, "-o", "source="+sourcePath, "-o", "sandbox=chroot").Start(); err != nil {
+					return nil, fmt.Errorf("start virtiofsd for sidecar volume: %s", err)
+				}
+
+				fsConfig := cloudhypervisor.FsConfig{
+					Id:        fs.Name,
+					Socket:    socketPath,
+					Tag:       fs.Name,
+					NumQueues: 1,
+					QueueSize: 1024,
+				}
+				vmConfig.Fs = append(vmConfig.Fs, &fsConfig)
 			}
 		}
 	}

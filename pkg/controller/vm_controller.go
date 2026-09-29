@@ -693,7 +693,17 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 				return nil, err
 			}
 			if !ready {
-				return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
+				if volume.DataVolume != nil {
+					pvc, pvcErr := volumeutil.GetPVC(ctx, r.Client, vm.Namespace, volume)
+					if pvcErr != nil {
+						return nil, fmt.Errorf("failed to get PVC for DataVolume %s: %w", volume.Name, pvcErr)
+					}
+					if pvc != nil && pvc.Status.Phase != corev1.ClaimPending {
+						return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
+					}
+				} else {
+					return nil, reconcileError{Result: ctrl.Result{RequeueAfter: time.Minute}}
+				}
 			}
 
 			isBlock, err := volumeutil.IsBlock(ctx, r.Client, vm.Namespace, volume)
@@ -809,6 +819,9 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 					if vmPod.Spec.NodeSelector == nil {
 						vmPod.Spec.NodeSelector = map[string]string{}
 					}
+					if vmPod.Annotations == nil {
+						vmPod.Annotations = make(map[string]string)
+					}
 					vmPod.Spec.NodeSelector["ovn.kubernetes.io/ovs_dp_type"] = "userspace"
 					vmPod.Annotations["ovn-dpdk.default.ovn.kubernetes.io/mac_address"] = iface.MAC
 
@@ -880,6 +893,9 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 		if err != nil {
 			return nil, fmt.Errorf("marshal networks: %s", err)
 		}
+		if vmPod.Annotations == nil {
+			vmPod.Annotations = make(map[string]string)
+		}
 		vmPod.Annotations["k8s.v1.cni.cncf.io/networks"] = string(networksJSON)
 	}
 
@@ -891,6 +907,32 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 		Name:  "VM_DATA",
 		Value: base64.StdEncoding.EncodeToString(vmJSON),
 	})
+
+	// Add sidecar volumes
+	if len(vm.Spec.SidecarVolumes) > 0 {
+		vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, vm.Spec.SidecarVolumes...)
+	}
+
+	// Add sidecar containers
+	if len(vm.Spec.Sidecars) > 0 {
+		vmPod.Spec.Containers = append(vmPod.Spec.Containers, vm.Spec.Sidecars...)
+	}
+
+	// Mount sidecar volumes that are used by FileSystems to cloud-hypervisor container
+	// This allows virt-prerunner to start virtiofsd with access to the shared directory
+	sidecarVolumeNames := make(map[string]bool)
+	for _, sv := range vm.Spec.SidecarVolumes {
+		sidecarVolumeNames[sv.Name] = true
+	}
+	for _, fs := range vm.Spec.Instance.FileSystems {
+		if sidecarVolumeNames[fs.Name] {
+			vmPod.Spec.Containers[0].VolumeMounts = append(vmPod.Spec.Containers[0].VolumeMounts,
+				corev1.VolumeMount{
+					Name:      fs.Name,
+					MountPath: "/mnt/" + fs.Name,
+				})
+		}
+	}
 
 	return &vmPod, nil
 }

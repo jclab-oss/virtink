@@ -35,23 +35,25 @@ func init() {
 func main() {
 	var metricsAddr string
 	var probeAddr string
+	var consoleAddr string
 	var rootfsCacheTTL time.Duration
 	var rootfsCacheGCInterval time.Duration
-  
+
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	flag.StringVar(&consoleAddr, "console-bind-address", ":8082", "The address the console endpoint binds to.")
 	flag.DurationVar(&rootfsCacheTTL, "rootfs-cache-ttl", 24*time.Hour, "How long a cached imageRootfs disk is kept after it's no longer used by any VM on the node.")
 	flag.DurationVar(&rootfsCacheGCInterval, "rootfs-cache-gc-interval", 10*time.Minute, "How often unused cached imageRootfs disks are looked for.")
-	
-  balloonConfig := balloon.DefaultConfig()
+
+	balloonConfig := balloon.DefaultConfig()
 	var balloonInterval time.Duration
 	flag.DurationVar(&balloonInterval, "balloon-interval", 10*time.Second, "The interval to adjust memory balloons of VMs. 0 disables automatic ballooning.")
 	flag.Float64Var(&balloonConfig.LowWatermark, "balloon-low-watermark", balloonConfig.LowWatermark, "Inflate balloons when the ratio of node available memory drops below this value.")
 	flag.Float64Var(&balloonConfig.HighWatermark, "balloon-high-watermark", balloonConfig.HighWatermark, "Deflate balloons when the ratio of node available memory rises above this value.")
 	flag.Float64Var(&balloonConfig.PSIThreshold, "balloon-psi-threshold", balloonConfig.PSIThreshold, "Inflate balloons when the node memory PSI some avg10 (%) exceeds this value.")
 	flag.Float64Var(&balloonConfig.StepRatio, "balloon-step-ratio", balloonConfig.StepRatio, "The ratio of (maxSize - minSize) to resize balloons by per interval.")
-	
-  opts := zap.Options{
+
+	opts := zap.Options{
 		Development: true,
 	}
 	opts.BindFlags(flag.CommandLine)
@@ -116,6 +118,11 @@ func main() {
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		setupLog.Error(err, "unable to set up ready check")
+		os.Exit(1)
+	}
+
+	if err := mgr.Add(daemon.NewConsoleServer(mgr.GetClient(), os.Getenv("NODE_NAME"), consoleAddr)); err != nil {
+		setupLog.Error(err, "unable to start console server")
 		os.Exit(1)
 	}
 

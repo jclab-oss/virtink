@@ -16,6 +16,7 @@ bin/
 
 # Dependency directories (remove the comment below to include it)
 # vendor/
+.vscode
 
 # VM disk images downloaded for e2e tests
 /test/.e2e-images/

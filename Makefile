@@ -11,6 +11,15 @@ GOOS ?= $(shell go env GOOS)
 
 all: test
 
+# kubectl-virt plugin
+.PHONY: kubectl-virt
+kubectl-virt: $(LOCALBIN)
+	CGO_ENABLED=0 go build -o $(LOCALBIN)/kubectl-virt cmd/kubectl-virt/main.go
+
+.PHONY: install-kubectl-virt
+install-kubectl-virt: $(LOCALBIN)
+	CGO_ENABLED=0 go build -o /usr/local/bin/kubectl-virt cmd/kubectl-virt/main.go
+
 generate:
 	iidfile=$$(mktemp /tmp/iid-XXXXXX) && \
 	docker build -f hack/Dockerfile --iidfile $$iidfile . && \

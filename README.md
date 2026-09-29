@@ -78,6 +78,8 @@ spec:
     kernel:
       image: smartxworks/virtink-kernel-5.15.12
       cmdline: "console=ttyS0 root=/dev/vda rw"
+    serial:
+      mode: Tty
     disks:
       - name: ubuntu
       - name: cloud-init
@@ -131,6 +133,10 @@ kubectl patch vm $VM_NAME --subresource=status --type=merge -p "{\"status\":{\"p
 ```
 
 You can also `Shutdown`, `Reset`, `Reboot` or `Pause` a running VM, or `Resume` a paused one. To start a powered-off VM, you can `PowerOn` it.
+
+### Access the VM (via Console)
+
+Virtink exposes a lightweight console endpoint from `virt-daemon`. See `docs/console.md` for details.
 
 ## Demo Recording
 
