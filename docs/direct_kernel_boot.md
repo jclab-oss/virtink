@@ -25,6 +25,16 @@ spec:
         size: 4Gi
 ```
 
+### Kernel Console
+
+The console of the kernel, given with `console=` in the `cmdline`, is shown in the logs of the VM Pod. Cloud Hypervisor emulates the serial port (`ttyS0`, or `ttyAMA0` on arm64) a character at a time, so a kernel logging to it boots seconds slower than with the virtio console (`hvc0`). When the last `console=` is `hvc0`, the virtio console is shown in the logs instead of the serial port:
+
+```yaml
+    kernel:
+      image: smartxworks/virtink-kernel-5.15.12
+      cmdline: "console=hvc0 root=/dev/vda rw"
+```
+
 ### Building and Using Your Own Kernel
 
 It's possible to build and use your own kernel for direct kernel booting. To build a kernel that can work properly with Cloud Hypervisor, refer to the [Cloud Hypervisor documentation](https://github.com/cloud-hypervisor/cloud-hypervisor#building-your-kernel).
