@@ -100,6 +100,14 @@ func buildVMConfig(ctx context.Context, vm *virtv1alpha1.VirtualMachine) (*cloud
 	if vm.Spec.Instance.Kernel != nil {
 		vmConfig.Payload.Kernel = "/mnt/virtink-kernel/vmlinux"
 		vmConfig.Payload.Cmdline = vm.Spec.Instance.Kernel.Cmdline
+
+		// The Tty of Cloud Hypervisor is the output of the VM Pod, so give it
+		// to the virtio console (hvc0) instead of the serial port when the
+		// kernel uses it as its console.
+		if isVirtioConsole(vm.Spec.Instance.Kernel.Cmdline) {
+			vmConfig.Console.Mode = "Tty"
+			vmConfig.Serial.Mode = "Pty"
+		}
 	}
 
 	if vm.Spec.Instance.CPU.DedicatedCPUPlacement {
@@ -663,4 +671,16 @@ func executeCommand(name string, arg ...string) (string, error) {
 		return string(output), fmt.Errorf("%q: %s: %s", cmd.String(), err, output)
 	}
 	return string(output), nil
+}
+
+// isVirtioConsole returns whether the last console in the kernel cmdline,
+// which is the one /dev/console refers to, is a virtio console (hvcN).
+func isVirtioConsole(cmdline string) bool {
+	var console string
+	for _, field := range strings.Fields(cmdline) {
+		if v, ok := strings.CutPrefix(field, "console="); ok {
+			console = v
+		}
+	}
+	return strings.HasPrefix(console, "hvc")
 }
