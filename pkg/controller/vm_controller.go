@@ -413,6 +413,10 @@ func (r *VMReconciler) buildVMPod(ctx context.Context, vm *virtv1alpha1.VirtualM
 	}
 	vmPod.Labels["virtink.io/vm.name"] = vm.Name
 
+	if vmPod.Annotations == nil {
+		vmPod.Annotations = map[string]string{}
+	}
+
 	if vm.Spec.Instance.Kernel != nil {
 		vmPod.Spec.Volumes = append(vmPod.Spec.Volumes, corev1.Volume{
 			Name: "virtink-kernel",

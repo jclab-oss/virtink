@@ -64,8 +64,6 @@ func TestBuildVMPodMultusNetworkNamespace(t *testing.T) {
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: "vm-ns",
 				Name:      "vm",
-				// buildVMPod requires annotations, such as of kubectl apply
-				Annotations: map[string]string{"example.com/annotation": ""},
 			},
 			Spec: virtv1alpha1.VirtualMachineSpec{
 				Instance: virtv1alpha1.Instance{
